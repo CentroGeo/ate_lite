@@ -1,7 +1,9 @@
 import React, { useState } from 'react';
 import DashboardFilters from './components/DashboardFilters';
+import GenerationTimeseriesChart from './components/GenerationTimeseriesChart';
 import useDashboardAlerts from './hooks/useDashboardAlerts';
 import useDashboardSummary from './hooks/useDashboardSummary';
+import useDashboardTimeseries from './hooks/useDashboardTimeseries';
 
 function formatNumber(value, options = {}) {
   if (value === null || value === undefined || value === '') {
@@ -56,6 +58,12 @@ export default function DashboardPage() {
     limit: 10,
     filters: dashboardFilters,
   });
+
+  const {
+    data: timeseriesData,
+    loading: timeseriesLoading,
+    error: timeseriesError,
+  } = useDashboardTimeseries(dashboardFilters);
 
   const summary = data?.summary || {};
   const alerts = data?.alerts || {};
@@ -168,6 +176,12 @@ export default function DashboardPage() {
               </article>
             ))}
           </section>
+
+          <GenerationTimeseriesChart
+            data={timeseriesData}
+            loading={timeseriesLoading}
+            error={timeseriesError}
+          />
 
           <h2 className="section-title">Alertas principales</h2>
 

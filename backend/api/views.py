@@ -1180,3 +1180,178 @@ def dashboard_options(request):
 
     return JsonResponse(data)
 
+
+@csrf_exempt
+def dashboard_timeseries(request):
+    """
+    Serie temporal de generación bruta, generación neta y consumo auxiliar.
+
+    Reglas de granularidad:
+    - outputPeriod=auto:
+        usa month solo si todos los registros filtrados son Mensual.
+        si hay Trimestral o mezcla, usa quarter.
+    - outputPeriod=month:
+        solo se respeta si todos los registros filtrados son Mensual.
+        si hay mezcla o Trimestral, se baja a quarter y se informa warning.
+    - outputPeriod=quarter | semester | year:
+        se respeta directamente.
+    """
+    filters = parse_dashboard_filters(request)
+    filter_errors = validate_dashboard_filters(filters)
+
+    if filter_errors:
+        return JsonResponse(
+            {
+                "status": "error",
+                "errors": filter_errors,
+            },
+            status=400,
+        )
+
+    requested_period = filters.get("output_period") or "auto"
+
+    if requested_period not in {"auto", "month", "quarter", "semester", "year"}:
+        requested_period = "auto"
+
+    consumos_where, consumos_params = build_consumos_where(filters, "c")
+
+    month_case = """
+        CASE
+            WHEN LOWER(BTRIM("MesIni")) = 'enero' THEN 1
+            WHEN LOWER(BTRIM("MesIni")) = 'febrero' THEN 2
+            WHEN LOWER(BTRIM("MesIni")) = 'marzo' THEN 3
+            WHEN LOWER(BTRIM("MesIni")) = 'abril' THEN 4
+            WHEN LOWER(BTRIM("MesIni")) = 'mayo' THEN 5
+            WHEN LOWER(BTRIM("MesIni")) = 'junio' THEN 6
+            WHEN LOWER(BTRIM("MesIni")) = 'julio' THEN 7
+            WHEN LOWER(BTRIM("MesIni")) = 'agosto' THEN 8
+            WHEN LOWER(BTRIM("MesIni")) IN ('septiembre', 'setiembre') THEN 9
+            WHEN LOWER(BTRIM("MesIni")) = 'octubre' THEN 10
+            WHEN LOWER(BTRIM("MesIni")) = 'noviembre' THEN 11
+            WHEN LOWER(BTRIM("MesIni")) = 'diciembre' THEN 12
+            ELSE NULL
+        END
+    """
+
+    with connection.cursor() as cursor:
+        cursor.execute(f"""
+            SELECT
+                COUNT(*) AS total_records,
+                COUNT(DISTINCT NULLIF(BTRIM(c."TipoPeriodo"), '')) AS distinct_periods,
+                BOOL_AND(NULLIF(BTRIM(c."TipoPeriodo"), '') = 'Mensual') AS only_monthly
+            FROM electricidad.dashboard_consumos c
+            WHERE {consumos_where};
+        """, consumos_params)
+        period_info = dictfetchone(cursor)
+
+    total_records = to_int(period_info.get("total_records"))
+    only_monthly = bool(period_info.get("only_monthly")) if total_records > 0 else False
+
+    warning = None
+
+    if requested_period == "auto":
+        effective_period = "month" if only_monthly else "quarter"
+    elif requested_period == "month" and not only_monthly:
+        effective_period = "quarter"
+        warning = (
+            "La consulta incluye registros trimestrales o mezcla de periodicidades; "
+            "se agrupó la serie a trimestre."
+        )
+    else:
+        effective_period = requested_period
+
+    if effective_period == "month":
+        period_select = """
+            "Anio" AS period_year,
+            mes_num AS period_number,
+            "Anio"::text || '-' || LPAD(mes_num::text, 2, '0') AS period_key,
+            "Anio"::text || '-' || LPAD(mes_num::text, 2, '0') AS period_label
+        """
+        period_group = '"Anio", mes_num'
+        period_order = '"Anio", mes_num'
+
+    elif effective_period == "quarter":
+        period_select = """
+            "Anio" AS period_year,
+            CEIL(mes_num / 3.0)::integer AS period_number,
+            "Anio"::text || '-Q' || CEIL(mes_num / 3.0)::integer::text AS period_key,
+            "Anio"::text || ' T' || CEIL(mes_num / 3.0)::integer::text AS period_label
+        """
+        period_group = '"Anio", CEIL(mes_num / 3.0)::integer'
+        period_order = '"Anio", CEIL(mes_num / 3.0)::integer'
+
+    elif effective_period == "semester":
+        period_select = """
+            "Anio" AS period_year,
+            CEIL(mes_num / 6.0)::integer AS period_number,
+            "Anio"::text || '-S' || CEIL(mes_num / 6.0)::integer::text AS period_key,
+            "Anio"::text || ' S' || CEIL(mes_num / 6.0)::integer::text AS period_label
+        """
+        period_group = '"Anio", CEIL(mes_num / 6.0)::integer'
+        period_order = '"Anio", CEIL(mes_num / 6.0)::integer'
+
+    else:
+        period_select = """
+            "Anio" AS period_year,
+            1 AS period_number,
+            "Anio"::text AS period_key,
+            "Anio"::text AS period_label
+        """
+        period_group = '"Anio"'
+        period_order = '"Anio"'
+
+    with connection.cursor() as cursor:
+        cursor.execute(f"""
+            WITH filtered_consumos AS (
+                SELECT
+                    c.*,
+                    {month_case} AS mes_num
+                FROM electricidad.dashboard_consumos c
+                WHERE {consumos_where}
+            ),
+            valid_consumos AS (
+                SELECT *
+                FROM filtered_consumos
+                WHERE "Anio" IS NOT NULL
+                  AND mes_num IS NOT NULL
+            )
+            SELECT
+                {period_select},
+                COUNT(*) AS registros,
+                COUNT(DISTINCT NULLIF(BTRIM("NumeroPermiso"), '')) AS permisos,
+                COALESCE(SUM("GeneracionBruta"), 0) AS generacion_bruta,
+                COALESCE(SUM("GeneracionNeta"), 0) AS generacion_neta,
+                COALESCE(SUM("ConsumoAuxiliar"), 0) AS consumo_auxiliar,
+                COALESCE(AVG("FactorPlanta"), 0) AS factor_planta_promedio
+            FROM valid_consumos
+            GROUP BY {period_group}
+            ORDER BY {period_order};
+        """, consumos_params)
+        rows = dictfetchall(cursor)
+
+    data = {
+        "status": "success",
+        "requested_period": requested_period,
+        "effective_period": effective_period,
+        "warning": warning,
+        "total_records": total_records,
+        "only_monthly": only_monthly,
+        "series": [
+            {
+                "period_key": row["period_key"],
+                "period_label": row["period_label"],
+                "period_year": to_int(row["period_year"]),
+                "period_number": to_int(row["period_number"]),
+                "registros": to_int(row["registros"]),
+                "permisos": to_int(row["permisos"]),
+                "generacion_bruta": to_float(row["generacion_bruta"]),
+                "generacion_neta": to_float(row["generacion_neta"]),
+                "consumo_auxiliar": to_float(row["consumo_auxiliar"]),
+                "factor_planta_promedio": to_float(row["factor_planta_promedio"]),
+            }
+            for row in rows
+        ],
+    }
+
+    return JsonResponse(data)
+
