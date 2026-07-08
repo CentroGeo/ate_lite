@@ -14,6 +14,8 @@ export default function DashboardPage() {
 
   const summary = data?.summary || {};
   const alerts = data?.alerts || {};
+  const alertsByLevel = data?.alerts_by_level || [];
+  const topAlerts = data?.top_alerts || [];
 
   const summaryCards = [
     {
@@ -22,35 +24,33 @@ export default function DashboardPage() {
       description: `${formatNumber(summary.total_vigentes)} vigentes`,
     },
     {
-      title: 'Generación anual',
-      value: formatNumber(summary.generacion_anual, {
+      title: 'Capacidad total',
+      value: formatNumber(summary.total_capacidad, {
         maximumFractionDigits: 2,
       }),
-      description: 'Neta / GWh',
+      description: 'MW autorizados',
     },
     {
-      title: 'Inversión estimada',
-      value: `$${formatNumber(summary.inversion_estimada, {
+      title: 'Generación neta',
+      value: formatNumber(summary.generacion_neta, {
         maximumFractionDigits: 2,
-      })}`,
-      description: 'Millones de dólares',
+      }),
+      description: `GWh en ${summary.anio_generacion || '-'}`,
     },
     {
       title: 'Permisionarios',
       value: formatNumber(summary.total_permisionarios),
-      description: `${formatNumber(summary.total_permisionarios_vigentes)} vigentes`,
+      description: 'Distintos en permisos',
     },
     {
-      title: 'Empresas',
-      value: formatNumber(summary.total_empresas),
-      description: `${formatNumber(summary.total_empresas_vigentes)} vigentes`,
+      title: 'Registros históricos',
+      value: formatNumber(summary.registros_consumo),
+      description: `${formatNumber(summary.permisos_con_consumo)} permisos con consumo`,
     },
     {
       title: 'Alertas',
-      value: formatNumber(
-        Object.values(alerts).reduce((total, value) => total + Number(value || 0), 0)
-      ),
-      description: 'Registros por revisar',
+      value: formatNumber(alerts.total_alertas),
+      description: `${formatNumber(alerts.alertas_criticas)} críticas`,
     },
   ];
 
@@ -64,15 +64,15 @@ export default function DashboardPage() {
       value: alerts.permisos_sin_georeferencia,
     },
     {
-      title: 'Consumo cero',
+      title: 'Consumo auxiliar 0',
       value: alerts.sin_consumo,
     },
     {
-      title: 'Generación cero',
+      title: 'Generación bruta/neta 0',
       value: alerts.sin_generacion,
     },
     {
-      title: 'F. planta > 100',
+      title: 'Factor de planta',
       value: alerts.factor_planta_mayor_100,
     },
     {
@@ -117,7 +117,7 @@ export default function DashboardPage() {
             ))}
           </section>
 
-          <h2 className="section-title">Alertas</h2>
+          <h2 className="section-title">Alertas principales</h2>
 
           <section className="db-grid">
             {alertCards.map((card) => (
@@ -126,9 +126,52 @@ export default function DashboardPage() {
                 <strong className="db-card-value">
                   {formatNumber(card.value)}
                 </strong>
-                <span className="db-card-desc">Click futuro para filtrar</span>
+                <span className="db-card-desc">id_nivel &gt; 0</span>
               </article>
             ))}
+          </section>
+
+          <h2 className="section-title">Alertas por nivel</h2>
+
+          <section className="db-grid">
+            {alertsByLevel.map((row) => (
+              <article className="db-card" key={row.id_nivel}>
+                <span className="db-card-title">{row.descripcion_nivel}</span>
+                <strong className="db-card-value">
+                  {formatNumber(row.total)}
+                </strong>
+                <span className="db-card-desc">Nivel {row.id_nivel}</span>
+              </article>
+            ))}
+          </section>
+
+          <h2 className="section-title">Top 10 tipos de alerta</h2>
+
+          <section className="db-card">
+            <div style={{ overflowX: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                <thead>
+                  <tr>
+                    <th style={{ textAlign: 'left', padding: '0.5rem' }}>ID</th>
+                    <th style={{ textAlign: 'left', padding: '0.5rem' }}>Alerta</th>
+                    <th style={{ textAlign: 'left', padding: '0.5rem' }}>Categoría</th>
+                    <th style={{ textAlign: 'right', padding: '0.5rem' }}>Total</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {topAlerts.map((row) => (
+                    <tr key={row.id_alerta}>
+                      <td style={{ padding: '0.5rem' }}>{row.id_alerta}</td>
+                      <td style={{ padding: '0.5rem' }}>{row.nombre_alerta}</td>
+                      <td style={{ padding: '0.5rem' }}>{row.nivel_categoria}</td>
+                      <td style={{ textAlign: 'right', padding: '0.5rem' }}>
+                        {formatNumber(row.total)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </section>
         </>
       )}
