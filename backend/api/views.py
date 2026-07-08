@@ -1395,3 +1395,180 @@ def dashboard_timeseries(request):
 
     return JsonResponse(data)
 
+@csrf_exempt
+@dashboard_api_errors
+def dashboard_geo(request):
+    """
+    Devuelve valores agregados para pintar el mapa.
+
+    Query params:
+    - geoLevel: estado | municipio
+    - metric: permisos | capacidad | generacion_neta | generacion_bruta | consumo_auxiliar
+    """
+    filters = parse_dashboard_filters(request)
+    filter_errors = validate_dashboard_filters(filters)
+
+    if filter_errors:
+        return JsonResponse(
+            {
+                "status": "error",
+                "errors": filter_errors,
+            },
+            status=400,
+        )
+
+    geo_level = request.GET.get("geoLevel", "estado")
+    metric = request.GET.get("metric", "permisos")
+
+    if geo_level not in {"estado", "municipio"}:
+        geo_level = "estado"
+
+    if metric not in {
+        "permisos",
+        "capacidad",
+        "generacion_neta",
+        "generacion_bruta",
+        "consumo_auxiliar",
+    }:
+        metric = "permisos"
+
+    permisos_where, permisos_params = build_permisos_where(filters, "p")
+    consumos_where, consumos_params = build_consumos_where(filters, "c")
+
+    if geo_level == "estado":
+        geo_id_expr = 'NULLIF(BTRIM(p."inegi_identidad"), \'\')'
+        geo_name_expr = (
+            'COALESCE('
+            'NULLIF(BTRIM(p."inegi_entidad"), \'\'), '
+            'NULLIF(BTRIM(p."CentralEntidadFederativa"), \'\'), '
+            '\'Sin entidad\''
+            ')'
+        )
+        parent_expr = "NULL::text"
+    else:
+        geo_id_expr = (
+            'CONCAT('
+            'COALESCE(NULLIF(BTRIM(p."inegi_identidad"), \'\'), \'\'), '
+            'COALESCE(NULLIF(BTRIM(p."inegi_idmunicipio"), \'\'), \'\')'
+            ')'
+        )
+        geo_name_expr = (
+            'COALESCE('
+            'NULLIF(BTRIM(p."inegi_municipio"), \'\'), '
+            'NULLIF(BTRIM(p."CentralMunicipio"), \'\'), '
+            '\'Sin municipio\''
+            ')'
+        )
+        parent_expr = 'NULLIF(BTRIM(p."inegi_identidad"), \'\')'
+
+    metric_sql = {
+        "permisos": 'COUNT(DISTINCT NULLIF(BTRIM(p."NumeroPermiso"), \'\'))',
+        "capacidad": 'COALESCE(SUM(p."TotalCapacidad"), 0)',
+        "generacion_neta": "COALESCE(SUM(fc.generacion_neta), 0)",
+        "generacion_bruta": "COALESCE(SUM(fc.generacion_bruta), 0)",
+        "consumo_auxiliar": "COALESCE(SUM(fc.consumo_auxiliar), 0)",
+    }[metric]
+
+    sql = f"""
+        WITH filtered_permisos AS (
+            SELECT p.*
+            FROM electricidad.dashboard_permisos p
+            WHERE {permisos_where}
+        ),
+        filtered_consumos AS (
+            SELECT
+                NULLIF(BTRIM(c."NumeroPermiso"), '') AS numero_permiso,
+                COALESCE(SUM(c."GeneracionNeta"), 0) AS generacion_neta,
+                COALESCE(SUM(c."GeneracionBruta"), 0) AS generacion_bruta,
+                COALESCE(SUM(c."ConsumoAuxiliar"), 0) AS consumo_auxiliar
+            FROM electricidad.dashboard_consumos c
+            WHERE {consumos_where}
+            GROUP BY NULLIF(BTRIM(c."NumeroPermiso"), '')
+        ),
+        joined_data AS (
+            SELECT
+                {geo_id_expr} AS geo_id,
+                {geo_name_expr} AS geo_name,
+                {parent_expr} AS parent_id,
+                {metric_sql} AS value,
+                COUNT(DISTINCT NULLIF(BTRIM(p."NumeroPermiso"), '')) AS permisos,
+                COALESCE(SUM(p."TotalCapacidad"), 0) AS capacidad,
+                COALESCE(SUM(fc.generacion_neta), 0) AS generacion_neta,
+                COALESCE(SUM(fc.generacion_bruta), 0) AS generacion_bruta,
+                COALESCE(SUM(fc.consumo_auxiliar), 0) AS consumo_auxiliar
+            FROM filtered_permisos p
+            LEFT JOIN filtered_consumos fc
+                ON fc.numero_permiso = NULLIF(BTRIM(p."NumeroPermiso"), '')
+            WHERE {geo_id_expr} IS NOT NULL
+              AND {geo_id_expr} <> ''
+            GROUP BY 1, 2, 3
+        )
+        SELECT
+            geo_id,
+            geo_name,
+            parent_id,
+            value,
+            permisos,
+            capacidad,
+            generacion_neta,
+            generacion_bruta,
+            consumo_auxiliar
+        FROM joined_data
+        ORDER BY value DESC, geo_name;
+    """
+
+    with connection.cursor() as cursor:
+        set_dashboard_statement_timeout(cursor)
+        cursor.execute(sql, permisos_params + consumos_params)
+        rows = dictfetchall(cursor)
+
+    values = sorted(
+        [to_float(row["value"]) for row in rows if to_float(row["value"]) > 0]
+    )
+
+    def percentile(sorted_values, fraction):
+        if not sorted_values:
+            return 0
+
+        index = (len(sorted_values) - 1) * fraction
+        lower = int(index)
+        upper = min(lower + 1, len(sorted_values) - 1)
+
+        if lower == upper:
+            return sorted_values[lower]
+
+        weight = index - lower
+        return sorted_values[lower] * (1 - weight) + sorted_values[upper] * weight
+
+    quantiles = [
+        percentile(values, 0.20),
+        percentile(values, 0.40),
+        percentile(values, 0.60),
+        percentile(values, 0.80),
+    ]
+
+    data = {
+        "status": "success",
+        "geo_level": geo_level,
+        "metric": metric,
+        "filters": filters,
+        "count": len(rows),
+        "quantiles": [round(value, 4) for value in quantiles],
+        "features": [
+            {
+                "id": row["geo_id"],
+                "name": row["geo_name"],
+                "parent_id": row["parent_id"],
+                "value": to_float(row["value"]),
+                "permisos": to_int(row["permisos"]),
+                "capacidad": to_float(row["capacidad"]),
+                "generacion_neta": to_float(row["generacion_neta"]),
+                "generacion_bruta": to_float(row["generacion_bruta"]),
+                "consumo_auxiliar": to_float(row["consumo_auxiliar"]),
+            }
+            for row in rows
+        ],
+    }
+
+    return JsonResponse(data)
+
