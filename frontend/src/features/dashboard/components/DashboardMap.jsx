@@ -371,6 +371,7 @@ function DashboardMap({
   const mapRef = useRef(null);
   const popupRef = useRef(null);
   const pointMarkersRef = useRef([]);
+  const pointBaseFiltersRef = useRef(null);
   const lastAutoFitKeyRef = useRef('');
   const hadActiveGeoSelectionRef = useRef(false);
   const nameLookupRef = useRef({
@@ -435,12 +436,17 @@ function DashboardMap({
     metric,
   });
 
+  const pointsFilters = useMemo(() => ({
+    ...filters,
+    permisos: [],
+  }), [filters]);
+
   const {
     data: pointsData,
     loading: pointsLoading,
     error: pointsError,
   } = useDashboardPoints({
-    filters,
+    filters: pointsFilters,
     enabled: selectedMunicipalityIds.length > 0,
     limit: 2000,
   });
@@ -1121,7 +1127,23 @@ function DashboardMap({
         element.addEventListener('click', (event) => {
           event.preventDefault();
           event.stopPropagation();
+
+          const permiso = String(point.numero_permiso || '').trim();
+
+          if (!permiso) {
+            return;
+          }
+
+          if (!pointBaseFiltersRef.current) {
+            pointBaseFiltersRef.current = JSON.parse(JSON.stringify(filters || {}));
+          }
+
           setSelectedPoint(point);
+
+          onApplyFilters({
+            ...filters,
+            permisos: [permiso],
+          });
         });
 
         const marker = new maplibregl.Marker({
@@ -1145,11 +1167,41 @@ function DashboardMap({
   }, [mapReady, pointsData, selectedMunicipalityIds]);
 
 
+  useEffect(() => {
+    if (!selectedPoint) {
+      return;
+    }
+
+    const selectedPermit = String(selectedPoint.numero_permiso || '').trim();
+    const activePermits = Array.isArray(filters?.permisos)
+      ? filters.permisos.map(String)
+      : [];
+
+    if (!selectedPermit || !activePermits.includes(selectedPermit)) {
+      setSelectedPoint(null);
+      pointBaseFiltersRef.current = null;
+    }
+  }, [filters?.permisos, selectedPoint]);
+
+  function closePointDetail({ restoreFilters = true } = {}) {
+    setSelectedPoint(null);
+
+    if (restoreFilters && pointBaseFiltersRef.current) {
+      onApplyFilters(pointBaseFiltersRef.current);
+    }
+
+    pointBaseFiltersRef.current = null;
+  }
+
   function resetToNational() {
+    setSelectedPoint(null);
+    pointBaseFiltersRef.current = null;
+
     onApplyFilters({
       ...filters,
       estados: [],
       municipios: [],
+      permisos: [],
     });
 
     setGeoLevel('estado');
@@ -1234,7 +1286,7 @@ function DashboardMap({
             <button
               type="button"
               className="map-point-close"
-              onClick={() => setSelectedPoint(null)}
+              onClick={() => closePointDetail()}
               aria-label="Cerrar detalle del permiso"
             >
               ×
