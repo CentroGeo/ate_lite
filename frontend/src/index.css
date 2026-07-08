@@ -2242,3 +2242,23 @@ button {
 .dashboard-pin-hover-tooltip {
   z-index: 20;
 }
+
+/* --- Estado seleccionado visible para pines de permisos --- */
+
+.dashboard-pin-marker.is-selected .dashboard-pin-svg {
+  filter:
+    drop-shadow(0 14px 18px rgba(15, 23, 42, 0.38))
+    drop-shadow(0 0 16px rgba(250, 204, 21, 0.85)) !important;
+  transform: translateY(-3px) scale(1.16) !important;
+}
+
+.dashboard-pin-marker.is-selected .dashboard-pin-svg path {
+  stroke: #fde68a !important;
+  stroke-width: 2.4px !important;
+}
+
+.dashboard-pin-marker.is-selected .dashboard-pin-svg circle {
+  fill: #ffffff !important;
+  stroke: #fde68a !important;
+  stroke-width: 1.8px !important;
+}

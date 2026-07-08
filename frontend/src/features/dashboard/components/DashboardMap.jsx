@@ -1215,18 +1215,6 @@ function DashboardMap({
             || event.getModifierState?.('Shift')
           );
 
-          const lng = Number(point.lng);
-          const lat = Number(point.lat);
-
-          if (Number.isFinite(lng) && Number.isFinite(lat)) {
-            map.easeTo({
-              center: [lng, lat],
-              zoom: Math.max(map.getZoom(), 12.2),
-              duration: 650,
-              essential: true,
-            });
-          }
-
           if (!pointBaseFiltersRef.current) {
             const baseFilters = JSON.parse(JSON.stringify(filters || {}));
             baseFilters.permisos = [];
@@ -1262,6 +1250,37 @@ function DashboardMap({
           }
 
           setPinModeEnabled(true);
+
+          if (isMultiSelect) {
+            /*
+             * Ctrl/Cmd/Shift + click en pin:
+             * - actualiza filtro de permisos,
+             * - no abre tarjeta vino,
+             * - cierra tarjeta vino si estaba abierta,
+             * - no hace zoom al pin.
+             */
+            setSelectedPoint(null);
+
+            onApplyFilters({
+              ...filters,
+              permisos: nextPermits,
+            });
+
+            return;
+          }
+
+          const lng = Number(point.lng);
+          const lat = Number(point.lat);
+
+          if (Number.isFinite(lng) && Number.isFinite(lat)) {
+            map.easeTo({
+              center: [lng, lat],
+              zoom: Math.max(map.getZoom(), 12.2),
+              duration: 650,
+              essential: true,
+            });
+          }
+
           setSelectedPoint(point);
 
           onApplyFilters({
@@ -1296,7 +1315,14 @@ function DashboardMap({
         pointMarkersRef.current = [];
       }
     };
-  }, [mapReady, pointsData, selectedMunicipalityIds, filters, onApplyFilters]);
+  }, [
+    mapReady,
+    pointsData,
+    selectedMunicipalityIds,
+    filters,
+    filters?.permisos,
+    onApplyFilters,
+  ]);
 
 
   useEffect(() => {
