@@ -1814,3 +1814,197 @@ button {
 .kpi-card .db-card-desc {
   margin-top: 0.16rem;
 }
+
+/* --- Pines visuales del mapa --- */
+
+.dashboard-pin-marker {
+  align-items: center;
+  appearance: none;
+  background: linear-gradient(180deg, #b02b67 0%, #7a244f 100%);
+  border: 2px solid rgba(255, 255, 255, 0.95);
+  border-radius: 50% 50% 50% 0;
+  box-shadow:
+    0 10px 18px rgba(15, 23, 42, 0.24),
+    0 0 0 6px rgba(122, 36, 79, 0.12);
+  cursor: pointer;
+  display: inline-flex;
+  height: 22px;
+  justify-content: center;
+  outline: none;
+  padding: 0;
+  position: relative;
+  transform: rotate(-45deg);
+  transition:
+    transform 0.16s ease,
+    box-shadow 0.16s ease,
+    filter 0.16s ease;
+  width: 22px;
+}
+
+.dashboard-pin-marker::before {
+  background: rgba(122, 36, 79, 0.18);
+  border-radius: 999px;
+  content: '';
+  inset: -7px;
+  position: absolute;
+  z-index: -1;
+}
+
+.dashboard-pin-marker:hover {
+  box-shadow:
+    0 14px 24px rgba(15, 23, 42, 0.28),
+    0 0 0 8px rgba(122, 36, 79, 0.16);
+  filter: saturate(1.08);
+  transform: rotate(-45deg) scale(1.08);
+}
+
+.dashboard-pin-marker:focus-visible {
+  box-shadow:
+    0 0 0 4px rgba(250, 204, 21, 0.28),
+    0 14px 24px rgba(15, 23, 42, 0.28);
+}
+
+.dashboard-pin-core {
+  background: #fde68a;
+  border: 2px solid rgba(255, 255, 255, 0.95);
+  border-radius: 999px;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.15);
+  height: 8px;
+  left: 50%;
+  position: absolute;
+  top: 50%;
+  transform: translate(-50%, -50%) rotate(45deg);
+  width: 8px;
+}
+
+/* --- Corrección: pin vertical, sin rotar el marker de MapLibre --- */
+
+.dashboard-pin-marker {
+  appearance: none;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  cursor: pointer;
+  height: 34px;
+  overflow: visible;
+  padding: 0;
+  width: 28px;
+}
+
+.dashboard-pin-marker::before {
+  display: none;
+}
+
+.dashboard-pin-marker:hover {
+  box-shadow: none;
+  filter: none;
+}
+
+.dashboard-pin-svg {
+  display: block;
+  filter:
+    drop-shadow(0 8px 10px rgba(15, 23, 42, 0.28))
+    drop-shadow(0 0 8px rgba(122, 36, 79, 0.18));
+  height: 34px;
+  overflow: visible;
+  transition:
+    transform 0.16s ease,
+    filter 0.16s ease;
+  width: 28px;
+}
+
+.dashboard-pin-marker:hover .dashboard-pin-svg {
+  filter:
+    drop-shadow(0 12px 14px rgba(15, 23, 42, 0.32))
+    drop-shadow(0 0 10px rgba(122, 36, 79, 0.24));
+  transform: translateY(-2px) scale(1.08);
+}
+
+/* --- Popup de pines de permisos --- */
+
+.dashboard-point-popup .maplibregl-popup-content {
+  background: transparent !important;
+  border: 0 !important;
+  box-shadow: none !important;
+  padding: 0 !important;
+}
+
+.dashboard-point-popup .maplibregl-popup-tip {
+  display: none !important;
+}
+
+.dashboard-point-popup .maplibregl-popup-close-button {
+  color: rgba(255, 255, 255, 0.8);
+  font-size: 1.25rem;
+  font-weight: 900;
+  padding: 0.35rem 0.55rem;
+  right: 0.2rem;
+  top: 0.15rem;
+}
+
+.dashboard-point-popup .maplibregl-popup-close-button:hover {
+  background: transparent;
+  color: #ffffff;
+}
+
+.dashboard-point-popup-card {
+  background:
+    radial-gradient(circle at top right, rgba(250, 204, 21, 0.22), transparent 40%),
+    linear-gradient(135deg, #7a244f 0%, #4c1234 100%);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 1.15rem;
+  box-shadow: 0 18px 42px rgba(15, 23, 42, 0.34);
+  color: #ffffff;
+  display: grid;
+  gap: 0.35rem;
+  min-width: 290px;
+  padding: 1rem 1.05rem 1.05rem;
+}
+
+.dashboard-point-popup-card .point-popup-kicker {
+  color: rgba(255, 255, 255, 0.68);
+  font-size: 0.68rem;
+  font-weight: 950;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.dashboard-point-popup-card strong {
+  color: #fde68a;
+  font-size: 1rem;
+  font-weight: 950;
+  line-height: 1.1;
+  padding-right: 1.4rem;
+}
+
+.dashboard-point-popup-card small {
+  color: rgba(255, 255, 255, 0.82);
+  font-size: 0.78rem;
+  font-weight: 800;
+  line-height: 1.22;
+  padding-right: 1.2rem;
+}
+
+.point-popup-grid {
+  border-top: 1px solid rgba(255, 255, 255, 0.16);
+  display: grid;
+  gap: 0.22rem 0.7rem;
+  grid-template-columns: auto 1fr;
+  margin-top: 0.5rem;
+  padding-top: 0.7rem;
+}
+
+.point-popup-grid span {
+  color: rgba(255, 255, 255, 0.58);
+  font-size: 0.68rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.point-popup-grid b {
+  color: #ffffff;
+  font-size: 0.76rem;
+  font-weight: 850;
+  line-height: 1.18;
+}

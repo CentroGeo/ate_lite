@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import maplibregl from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import useDashboardGeo from '../hooks/useDashboardGeo';
+import useDashboardPoints from '../hooks/useDashboardPoints';
 
 const GEOJSON_URLS = {
   estado: '/geo/ent_R.geojson',
@@ -29,6 +30,10 @@ const GEO_SOURCE_ID = 'dashboard-geo-source';
 const GEO_FILL_LAYER_ID = 'dashboard-geo-fill';
 const GEO_BORDER_LAYER_ID = 'dashboard-geo-border';
 const GEO_SELECTED_LAYER_ID = 'dashboard-geo-selected';
+
+const POINTS_SOURCE_ID = 'dashboard-points-source';
+const POINTS_HALO_LAYER_ID = 'dashboard-points-halo';
+const POINTS_LAYER_ID = 'dashboard-points';
 
 function formatNumber(value) {
   return new Intl.NumberFormat('es-MX', {
@@ -356,7 +361,8 @@ function getMapStyle() {
   };
 }
 
-export default function DashboardMap({
+export default 
+function DashboardMap({
   filters,
   onApplyFilters,
   onSelectionLabelChange = () => {},
@@ -364,6 +370,7 @@ export default function DashboardMap({
   const mapContainerRef = useRef(null);
   const mapRef = useRef(null);
   const popupRef = useRef(null);
+  const pointMarkersRef = useRef([]);
   const lastAutoFitKeyRef = useRef('');
   const hadActiveGeoSelectionRef = useRef(false);
   const nameLookupRef = useRef({
@@ -426,6 +433,39 @@ export default function DashboardMap({
     geoLevel,
     metric,
   });
+
+  const {
+    data: pointsData,
+    loading: pointsLoading,
+    error: pointsError,
+  } = useDashboardPoints({
+    filters,
+    enabled: selectedMunicipalityIds.length > 0,
+    limit: 2000,
+  });
+
+  const pointsGeoJson = useMemo(() => ({
+    type: 'FeatureCollection',
+    features: (pointsData?.points || [])
+      .filter((point) => Number.isFinite(Number(point.lng)) && Number.isFinite(Number(point.lat)))
+      .map((point) => ({
+        type: 'Feature',
+        geometry: {
+          type: 'Point',
+          coordinates: [Number(point.lng), Number(point.lat)],
+        },
+        properties: {
+          numero_permiso: point.numero_permiso || '',
+          permisionario: point.permisionario || '',
+          modalidad: point.modalidad || '',
+          tecnologia: point.tecnologia || '',
+          capacidad: Number(point.capacidad || 0),
+          entidad: point.entidad || '',
+          municipio: point.municipio || '',
+        },
+      })),
+  }), [pointsData]);
+
 
   function updateSelectionContext(label) {
     setMapTitleContext(label);
@@ -1020,6 +1060,83 @@ export default function DashboardMap({
     selectedStateIds,
     selectedMunicipalityIds,
   ]);
+
+
+  useEffect(() => {
+    const map = mapRef.current;
+
+    if (!map || !mapReady) {
+      return;
+    }
+
+    pointMarkersRef.current.forEach((marker) => marker.remove());
+    pointMarkersRef.current = [];
+
+    const points = pointsData?.points || [];
+
+    if (selectedMunicipalityIds.length === 0 || points.length === 0) {
+      return;
+    }
+
+    const markers = points
+      .filter((point) => (
+        Number.isFinite(Number(point.lng))
+        && Number.isFinite(Number(point.lat))
+      ))
+      .map((point) => {
+        const element = document.createElement('button');
+        element.type = 'button';
+        element.className = 'dashboard-pin-marker';
+        element.setAttribute(
+          'aria-label',
+          point.numero_permiso || point.permisionario || 'Permiso georreferenciado'
+        );
+        element.innerHTML = `
+          <svg class="dashboard-pin-svg" viewBox="0 0 24 32" aria-hidden="true" focusable="false">
+            <defs>
+              <linearGradient id="dashboardPinGradient" x1="12" y1="1.4" x2="12" y2="30.3" gradientUnits="userSpaceOnUse">
+                <stop offset="0" stop-color="#c43374" />
+                <stop offset="0.58" stop-color="#7a244f" />
+                <stop offset="1" stop-color="#561734" />
+              </linearGradient>
+            </defs>
+            <path
+              d="M12 1.4C6.15 1.4 1.6 5.95 1.6 11.72c0 8.42 10.4 18.88 10.4 18.88s10.4-10.46 10.4-18.88C22.4 5.95 17.85 1.4 12 1.4Z"
+              fill="url(#dashboardPinGradient)"
+              stroke="rgba(255,255,255,0.96)"
+              stroke-width="1.6"
+            />
+            <circle
+              cx="12"
+              cy="11.9"
+              r="4.15"
+              fill="#fde68a"
+              stroke="rgba(255,255,255,0.95)"
+              stroke-width="1.35"
+            />
+          </svg>
+        `;
+
+        const marker = new maplibregl.Marker({
+          element,
+          anchor: 'bottom',
+        })
+          .setLngLat([Number(point.lng), Number(point.lat)])
+          .addTo(map);
+
+        return marker;
+      });
+
+    pointMarkersRef.current = markers;
+
+    return () => {
+      markers.forEach((marker) => marker.remove());
+      if (pointMarkersRef.current === markers) {
+        pointMarkersRef.current = [];
+      }
+    };
+  }, [mapReady, pointsData, selectedMunicipalityIds]);
+
 
   function resetToNational() {
     onApplyFilters({
