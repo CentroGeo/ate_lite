@@ -16,6 +16,14 @@ const DEFAULT_FILTERS = {
   permisionarios: [],
 };
 
+const OUTPUT_PERIOD_LABELS = {
+  auto: 'Automático',
+  month: 'Mensual',
+  quarter: 'Trimestral',
+  semester: 'Semestral',
+  year: 'Anual',
+};
+
 function getSelectedValues(event) {
   return Array.from(event.target.selectedOptions).map((option) => option.value);
 }
@@ -55,6 +63,50 @@ export default function DashboardFilters({ filters, onApply, onClear }) {
   const { data: options, loading, error } = useDashboardOptions();
   const [draft, setDraft] = useState(() => normalizeFilters(filters));
   const [isOpen, setIsOpen] = useState(false);
+
+  const chipLookups = useMemo(() => {
+    const estadoNames = new Map(
+      options.estados.map((item) => [String(item.id), item.nombre])
+    );
+
+    return {
+      alertLevels: new Map(
+        options.alert_levels.map((item) => [
+          String(item.id_nivel),
+          item.descripcion_nivel,
+        ])
+      ),
+      alertTypes: new Map(
+        options.alert_types.map((item) => [
+          String(item.id_alerta),
+          item.nombre_alerta,
+        ])
+      ),
+      estados: estadoNames,
+      municipios: new Map(
+        options.municipios.map((item) => [
+          `${item.estado_id}${item.id}`,
+          `${item.nombre}${estadoNames.get(String(item.estado_id)) ? `, ${estadoNames.get(String(item.estado_id))}` : ''}`,
+        ])
+      ),
+      modalidades: new Map(
+        options.modalidades.map((item) => [String(item.value), item.label])
+      ),
+      tecnologias: new Map(
+        options.tecnologias.map((item) => [String(item.value), item.label])
+      ),
+      permisos: new Map(
+        options.permisos.map((item) => [String(item.value), item.label])
+      ),
+      permisionarios: new Map(
+        options.permisionarios.map((item) => [String(item.value), item.label])
+      ),
+    };
+  }, [options]);
+
+  function getChipValueLabel(key, value) {
+    return chipLookups[key]?.get(String(value)) || value;
+  }
 
   const validationErrors = useMemo(() => {
     const errors = [];
@@ -96,7 +148,7 @@ export default function DashboardFilters({ filters, onApply, onClear }) {
     if (draft.outputPeriod !== 'auto') {
       chips.push({
         key: 'outputPeriod',
-        label: `Agrupar: ${draft.outputPeriod}`,
+        label: `Agrupar: ${OUTPUT_PERIOD_LABELS[draft.outputPeriod] || draft.outputPeriod}`,
         remove: () => setDraft((current) => ({ ...current, outputPeriod: 'auto' })),
       });
     }
@@ -105,7 +157,7 @@ export default function DashboardFilters({ filters, onApply, onClear }) {
       values.forEach((value) => {
         chips.push({
           key: `${key}-${value}`,
-          label: `${label}: ${value}`,
+          label: `${label}: ${getChipValueLabel(key, value)}`,
           remove: () => setDraft((current) => ({
             ...current,
             [key]: current[key].filter((item) => item !== value),
@@ -124,7 +176,7 @@ export default function DashboardFilters({ filters, onApply, onClear }) {
     addMultiChips('permisionarios', 'Permisionario', draft.permisionarios);
 
     return chips;
-  }, [draft]);
+  }, [draft, chipLookups]);
 
   function updateField(field, value) {
     setDraft((current) => ({
