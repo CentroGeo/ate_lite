@@ -106,6 +106,39 @@ def map_data(request):
     }
     return JsonResponse(data, safe=False)
 
+def set_dashboard_statement_timeout(cursor, milliseconds=20000):
+    cursor.execute("SET statement_timeout = %s", [milliseconds])
+
+
+def dashboard_api_errors(view_func):
+    def wrapper(request, *args, **kwargs):
+        try:
+            return view_func(request, *args, **kwargs)
+        except Exception as exc:
+            message = str(exc)
+
+            status = 500
+            user_message = "Ocurrió un error al consultar el backend."
+
+            if "statement timeout" in message.lower():
+                status = 504
+                user_message = (
+                    "La consulta tardó demasiado. Reduce la combinación de filtros "
+                    "o intenta con un rango más pequeño."
+                )
+
+            return JsonResponse(
+                {
+                    "status": "error",
+                    "message": user_message,
+                    "error_type": exc.__class__.__name__,
+                },
+                status=status,
+            )
+
+    return wrapper
+
+
 def dictfetchone(cursor):
     columns = [column[0] for column in cursor.description]
     row = cursor.fetchone()
@@ -386,6 +419,7 @@ def build_alert_where(filters, alias):
 
 
 @csrf_exempt
+@dashboard_api_errors
 def dashboard_summary(request):
     """
     Resumen principal del dashboard aplicando filtros globales.
@@ -422,6 +456,7 @@ def dashboard_summary(request):
         """
 
     with connection.cursor() as cursor:
+        set_dashboard_statement_timeout(cursor)
         cursor.execute(f"""
             WITH filtered_permisos AS (
                 SELECT p.*
@@ -721,6 +756,7 @@ def dashboard_summary(request):
 
 
 @csrf_exempt
+@dashboard_api_errors
 def dashboard_alerts(request):
     """
     Devuelve detalle de alertas recientes aplicando filtros globales.
@@ -891,6 +927,7 @@ def dashboard_alerts(request):
     )
 
     with connection.cursor() as cursor:
+        set_dashboard_statement_timeout(cursor)
         cursor.execute(sql, params)
         rows = dictfetchall(cursor)
 
@@ -1182,6 +1219,7 @@ def dashboard_options(request):
 
 
 @csrf_exempt
+@dashboard_api_errors
 def dashboard_timeseries(request):
     """
     Serie temporal de generación bruta, generación neta y consumo auxiliar.
@@ -1234,6 +1272,7 @@ def dashboard_timeseries(request):
     """
 
     with connection.cursor() as cursor:
+        set_dashboard_statement_timeout(cursor)
         cursor.execute(f"""
             SELECT
                 COUNT(*) AS total_records,
@@ -1301,6 +1340,7 @@ def dashboard_timeseries(request):
         period_order = '"Anio"'
 
     with connection.cursor() as cursor:
+        set_dashboard_statement_timeout(cursor)
         cursor.execute(f"""
             WITH filtered_consumos AS (
                 SELECT
