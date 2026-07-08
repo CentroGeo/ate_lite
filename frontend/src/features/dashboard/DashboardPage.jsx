@@ -14,6 +14,22 @@ function formatNumber(value, options = {}) {
   return new Intl.NumberFormat('es-MX', options).format(value);
 }
 
+function buildChartContextLabel(baseLabel, filters) {
+  const permisos = Array.isArray(filters?.permisos)
+    ? filters.permisos.filter(Boolean)
+    : [];
+
+  if (permisos.length === 0) {
+    return baseLabel;
+  }
+
+  if (permisos.length === 1) {
+    return `${baseLabel} · Permiso: ${permisos[0]}`;
+  }
+
+  return `${baseLabel} · ${permisos.length} permisos seleccionados`;
+}
+
 function formatDate(value) {
   if (!value) {
     return '-';
@@ -43,6 +59,12 @@ export default function DashboardPage() {
     permisos: [],
     permisionarios: [],
   });
+
+
+  const chartContextLabel = buildChartContextLabel(
+    mapSelectionLabel,
+    dashboardFilters
+  );
 
   const {
     data,
@@ -200,7 +222,7 @@ export default function DashboardPage() {
               data={timeseriesData}
               loading={timeseriesLoading}
               error={timeseriesError}
-              contextLabel={mapSelectionLabel}
+              contextLabel={chartContextLabel}
             />
           </section>
 
