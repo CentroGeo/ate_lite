@@ -2223,3 +2223,22 @@ button {
 .dashboard-pin-hover-tooltip {
   z-index: 20;
 }
+
+/* --- Evitar doble tooltip: si se hoverea un pin, ocultar tooltip MapLibre --- */
+
+.maplibre-dashboard-map:has(.dashboard-pin-marker:hover) .dashboard-map-tooltip {
+  display: none !important;
+}
+
+/* Los pines no deben quedar por encima del tooltip normal del mapa */
+.dashboard-pin-marker {
+  z-index: auto !important;
+}
+
+.dashboard-pin-marker:hover {
+  z-index: auto !important;
+}
+
+.dashboard-pin-hover-tooltip {
+  z-index: 20;
+}

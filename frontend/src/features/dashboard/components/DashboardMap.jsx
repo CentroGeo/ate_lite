@@ -372,7 +372,6 @@ function DashboardMap({
   const popupRef = useRef(null);
   const pointMarkersRef = useRef([]);
   const pointBaseFiltersRef = useRef(null);
-  const isPinHoveringRef = useRef(false);
   const lastAutoFitKeyRef = useRef('');
   const hadActiveGeoSelectionRef = useRef(false);
   const nameLookupRef = useRef({
@@ -1163,14 +1162,7 @@ function DashboardMap({
         tooltip.append(tooltipKicker, tooltipTitle, tooltipSubtitle, tooltipValue);
         element.appendChild(tooltip);
 
-        element.addEventListener('pointerenter', () => {
-          isPinHoveringRef.current = true;
-          popupRef.current?.remove();
-        });
 
-        element.addEventListener('pointerleave', () => {
-          isPinHoveringRef.current = false;
-        });
 
         element.addEventListener('click', (event) => {
           event.preventDefault();
