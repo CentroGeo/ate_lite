@@ -490,3 +490,257 @@ def dashboard_alerts(request):
 
     return JsonResponse(data)
 
+
+@csrf_exempt
+def dashboard_options(request):
+    """
+    Catálogos para construir los filtros del dashboard.
+
+    Estos valores salen de las vistas/tablas reales del schema electricidad.
+    """
+    with connection.cursor() as cursor:
+        cursor.execute("""
+            SELECT
+                MIN("Anio") AS min_year,
+                MAX("Anio") AS max_year
+            FROM electricidad.dashboard_consumos
+            WHERE "Anio" IS NOT NULL;
+        """)
+        years = dictfetchone(cursor)
+
+        cursor.execute("""
+            WITH valores AS (
+                SELECT NULLIF(BTRIM("TipoPeriodo"), '') AS value
+                FROM electricidad.dashboard_consumos
+            )
+            SELECT
+                value,
+                COUNT(*) AS total
+            FROM valores
+            WHERE value IS NOT NULL
+            GROUP BY value
+            ORDER BY value;
+        """)
+        tipo_periodo = dictfetchall(cursor)
+
+        cursor.execute("""
+            WITH valores AS (
+                SELECT NULLIF(BTRIM("Modalidad"), '') AS value
+                FROM electricidad.dashboard_permisos
+                UNION ALL
+                SELECT NULLIF(BTRIM("Modalidad"), '') AS value
+                FROM electricidad.dashboard_consumos
+            )
+            SELECT
+                value,
+                COUNT(*) AS total
+            FROM valores
+            WHERE value IS NOT NULL
+            GROUP BY value
+            ORDER BY value;
+        """)
+        modalidades = dictfetchall(cursor)
+
+        cursor.execute("""
+            WITH valores AS (
+                SELECT NULLIF(BTRIM("Tecnologia"), '') AS value
+                FROM electricidad.dashboard_permisos
+                UNION ALL
+                SELECT NULLIF(BTRIM("Tecnologia"), '') AS value
+                FROM electricidad.dashboard_consumos
+            )
+            SELECT
+                value,
+                COUNT(*) AS total
+            FROM valores
+            WHERE value IS NOT NULL
+            GROUP BY value
+            ORDER BY value;
+        """)
+        tecnologias = dictfetchall(cursor)
+
+        cursor.execute("""
+            SELECT
+                id_alerta,
+                nombre_alerta,
+                nivel_categoria,
+                descripcion
+            FROM electricidad.cat_alertas
+            ORDER BY id_alerta;
+        """)
+        alert_types = dictfetchall(cursor)
+
+        cursor.execute("""
+            SELECT
+                id_nivel,
+                descripcion_nivel
+            FROM electricidad.cat_niveles_alerta
+            ORDER BY id_nivel;
+        """)
+        alert_levels = dictfetchall(cursor)
+
+        cursor.execute("""
+            WITH estados_base AS (
+                SELECT
+                    NULLIF(BTRIM("inegi_identidad"), '') AS estado_id,
+                    COALESCE(
+                        NULLIF(BTRIM("inegi_entidad"), ''),
+                        NULLIF(BTRIM("CentralEntidadFederativa"), '')
+                    ) AS estado_nombre,
+                    NULLIF(BTRIM("NumeroPermiso"), '') AS numero_permiso
+                FROM electricidad.dashboard_permisos
+            )
+            SELECT
+                estado_id,
+                MAX(estado_nombre) AS estado_nombre,
+                COUNT(DISTINCT numero_permiso) AS total_permisos
+            FROM estados_base
+            WHERE estado_id IS NOT NULL
+            GROUP BY estado_id
+            ORDER BY estado_nombre;
+        """)
+        estados = dictfetchall(cursor)
+
+        cursor.execute("""
+            WITH municipios_base AS (
+                SELECT
+                    NULLIF(BTRIM("inegi_identidad"), '') AS estado_id,
+                    NULLIF(BTRIM("inegi_idmunicipio"), '') AS municipio_id,
+                    COALESCE(
+                        NULLIF(BTRIM("inegi_municipio"), ''),
+                        NULLIF(BTRIM("CentralMunicipio"), '')
+                    ) AS municipio_nombre,
+                    NULLIF(BTRIM("NumeroPermiso"), '') AS numero_permiso
+                FROM electricidad.dashboard_permisos
+            )
+            SELECT
+                estado_id,
+                municipio_id,
+                MAX(municipio_nombre) AS municipio_nombre,
+                COUNT(DISTINCT numero_permiso) AS total_permisos
+            FROM municipios_base
+            WHERE municipio_id IS NOT NULL
+            GROUP BY estado_id, municipio_id
+            ORDER BY municipio_nombre;
+        """)
+        municipios = dictfetchall(cursor)
+
+        cursor.execute("""
+            WITH valores AS (
+                SELECT NULLIF(BTRIM("NumeroPermiso"), '') AS numero_permiso
+                FROM electricidad.dashboard_permisos
+                UNION
+                SELECT NULLIF(BTRIM("NumeroPermiso"), '') AS numero_permiso
+                FROM electricidad.dashboard_consumos
+            )
+            SELECT numero_permiso
+            FROM valores
+            WHERE numero_permiso IS NOT NULL
+            ORDER BY numero_permiso;
+        """)
+        permisos = dictfetchall(cursor)
+
+        cursor.execute("""
+            WITH valores AS (
+                SELECT COALESCE(
+                    NULLIF(BTRIM("Permisionario"), ''),
+                    NULLIF(BTRIM("Razon_Social_Autorizada"), '')
+                ) AS permisionario
+                FROM electricidad.dashboard_permisos
+
+                UNION
+
+                SELECT COALESCE(
+                    NULLIF(BTRIM("Permisionario"), ''),
+                    NULLIF(BTRIM("Razon_Social_Autorizada"), '')
+                ) AS permisionario
+                FROM electricidad.dashboard_consumos
+            )
+            SELECT permisionario
+            FROM valores
+            WHERE permisionario IS NOT NULL
+            ORDER BY permisionario;
+        """)
+        permisionarios = dictfetchall(cursor)
+
+    data = {
+        "status": "success",
+        "years": {
+            "min": to_int(years.get("min_year")),
+            "max": to_int(years.get("max_year")),
+        },
+        "tipo_periodo": [
+            {
+                "value": row["value"],
+                "label": row["value"],
+                "total": to_int(row["total"]),
+            }
+            for row in tipo_periodo
+        ],
+        "modalidades": [
+            {
+                "value": row["value"],
+                "label": row["value"],
+                "total": to_int(row["total"]),
+            }
+            for row in modalidades
+        ],
+        "tecnologias": [
+            {
+                "value": row["value"],
+                "label": row["value"],
+                "total": to_int(row["total"]),
+            }
+            for row in tecnologias
+        ],
+        "alert_types": [
+            {
+                "id_alerta": to_int(row["id_alerta"]),
+                "nombre_alerta": row["nombre_alerta"],
+                "nivel_categoria": row["nivel_categoria"],
+                "descripcion": row["descripcion"],
+            }
+            for row in alert_types
+        ],
+        "alert_levels": [
+            {
+                "id_nivel": to_int(row["id_nivel"]),
+                "descripcion_nivel": row["descripcion_nivel"],
+            }
+            for row in alert_levels
+        ],
+        "estados": [
+            {
+                "id": row["estado_id"],
+                "nombre": row["estado_nombre"],
+                "total_permisos": to_int(row["total_permisos"]),
+            }
+            for row in estados
+        ],
+        "municipios": [
+            {
+                "estado_id": row["estado_id"],
+                "id": row["municipio_id"],
+                "nombre": row["municipio_nombre"],
+                "total_permisos": to_int(row["total_permisos"]),
+            }
+            for row in municipios
+        ],
+        "permisos": [
+            {
+                "value": row["numero_permiso"],
+                "label": row["numero_permiso"],
+            }
+            for row in permisos
+        ],
+        "permisionarios": [
+            {
+                "value": row["permisionario"],
+                "label": row["permisionario"],
+            }
+            for row in permisionarios
+        ],
+    }
+
+    return JsonResponse(data)
+
