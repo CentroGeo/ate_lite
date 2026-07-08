@@ -5,6 +5,7 @@ import { appendDashboardFilters } from '../utils/dashboardFilters';
 export default function useDashboardSummary(filters = {}) {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState('');
   const hasLoadedOnceRef = useRef(false);
 
@@ -17,7 +18,10 @@ export default function useDashboardSummary(filters = {}) {
       try {
         if (!hasLoadedOnceRef.current) {
           setLoading(true);
+        } else {
+          setRefreshing(true);
         }
+
         setError('');
 
         const params = appendDashboardFilters(new URLSearchParams(), filters);
@@ -39,6 +43,7 @@ export default function useDashboardSummary(filters = {}) {
       } finally {
         if (isMounted) {
           setLoading(false);
+          setRefreshing(false);
         }
       }
     }
@@ -54,5 +59,6 @@ export default function useDashboardSummary(filters = {}) {
     data,
     loading,
     error,
+    refreshing,
   };
 }

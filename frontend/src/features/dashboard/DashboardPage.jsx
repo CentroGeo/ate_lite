@@ -28,6 +28,7 @@ function formatDate(value) {
 export default function DashboardPage() {
   const [alertSource, setAlertSource] = useState('all');
   const [alertLevel, setAlertLevel] = useState(3);
+  const [mapSelectionLabel, setMapSelectionLabel] = useState('Vista nacional');
   const [dashboardFilters, setDashboardFilters] = useState({
     startYear: '',
     endYear: '',
@@ -47,6 +48,7 @@ export default function DashboardPage() {
     data,
     loading,
     error,
+    refreshing: summaryRefreshing,
   } = useDashboardSummary(dashboardFilters);
 
   const {
@@ -170,10 +172,19 @@ export default function DashboardPage() {
         <>
           <section className="db-grid">
             {summaryCards.map((card) => (
-              <article className="db-card" key={card.title}>
-                <span className="db-card-title">{card.title}</span>
+              <article
+                className={`db-card kpi-card ${summaryRefreshing ? 'is-refreshing' : ''}`}
+                key={card.title}
+              >
+                <div className="kpi-card-topline">
+                  <span className="db-card-title">{card.title}</span>
+                  {summaryRefreshing && <span className="kpi-refresh-dot" />}
+                </div>
+
                 <strong className="db-card-value">{card.value}</strong>
                 <span className="db-card-desc">{card.description}</span>
+
+                <div className="kpi-card-accent" />
               </article>
             ))}
           </section>
@@ -182,12 +193,14 @@ export default function DashboardPage() {
             <DashboardMap
               filters={dashboardFilters}
               onApplyFilters={setDashboardFilters}
+              onSelectionLabelChange={setMapSelectionLabel}
             />
 
             <GenerationTimeseriesChart
               data={timeseriesData}
               loading={timeseriesLoading}
               error={timeseriesError}
+              contextLabel={mapSelectionLabel}
             />
           </section>
 
