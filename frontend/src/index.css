@@ -2134,3 +2134,92 @@ button {
     top: auto;
   }
 }
+
+/* --- Tooltip CSS-only de pines, sin estado React --- */
+
+.dashboard-pin-marker {
+  overflow: visible;
+  pointer-events: auto;
+  position: relative;
+}
+
+.dashboard-pin-hover-tooltip {
+  background: linear-gradient(135deg, #7a244f 0%, #a3265e 100%);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 1rem;
+  bottom: calc(100% + 10px);
+  box-shadow: 0 16px 34px rgba(15, 23, 42, 0.26);
+  color: #ffffff;
+  display: grid;
+  gap: 0.18rem;
+  left: 50%;
+  min-width: 235px;
+  opacity: 0;
+  padding: 0.85rem 0.95rem;
+  pointer-events: none !important;
+  position: absolute;
+  transform: translateX(-50%) translateY(4px);
+  transition: opacity 0.12s ease, transform 0.12s ease;
+  visibility: hidden;
+  z-index: 20;
+}
+
+.dashboard-pin-hover-tooltip::after {
+  background: #7a244f;
+  bottom: -5px;
+  content: '';
+  height: 10px;
+  left: 50%;
+  position: absolute;
+  transform: translateX(-50%) rotate(45deg);
+  width: 10px;
+}
+
+.dashboard-pin-marker:hover .dashboard-pin-hover-tooltip {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+  visibility: visible;
+}
+
+.dashboard-pin-hover-tooltip .pin-tooltip-kicker {
+  color: rgba(255, 255, 255, 0.78);
+  font-size: 0.68rem;
+  font-weight: 950;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+
+.dashboard-pin-hover-tooltip strong {
+  color: #ffffff;
+  font-size: 0.92rem;
+  font-weight: 950;
+  line-height: 1.1;
+}
+
+.dashboard-pin-hover-tooltip small {
+  color: rgba(255, 255, 255, 0.72);
+  font-size: 0.74rem;
+  font-weight: 800;
+  line-height: 1.15;
+}
+
+.dashboard-pin-hover-tooltip b {
+  color: #fde68a;
+  font-size: 1rem;
+  font-weight: 950;
+  line-height: 1;
+  margin-top: 0.2rem;
+}
+/* --- Reset de prioridad visual de pines --- */
+
+.dashboard-pin-marker {
+  z-index: auto;
+}
+
+.dashboard-pin-marker:hover {
+  z-index: auto;
+}
+
+.dashboard-pin-hover-tooltip {
+  z-index: 20;
+}

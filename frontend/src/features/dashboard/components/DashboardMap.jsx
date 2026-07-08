@@ -372,6 +372,7 @@ function DashboardMap({
   const popupRef = useRef(null);
   const pointMarkersRef = useRef([]);
   const pointBaseFiltersRef = useRef(null);
+  const isPinHoveringRef = useRef(false);
   const lastAutoFitKeyRef = useRef('');
   const hadActiveGeoSelectionRef = useRef(false);
   const nameLookupRef = useRef({
@@ -401,6 +402,17 @@ function DashboardMap({
   const isNationalView = selectedStateIds.length === 0
     && selectedMunicipalityIds.length === 0;
 
+  const activePermitIds = Array.isArray(filters?.permisos)
+    ? filters.permisos.map(String)
+    : [];
+
+  const selectedPointPermit = String(selectedPoint?.numero_permiso || '').trim();
+
+  const isPointPermitFilterActive = Boolean(
+    selectedPointPermit
+    && activePermitIds.includes(selectedPointPermit)
+  );
+
   const geoFilters = useMemo(() => {
     /*
      * El mapa debe conservar contexto visual aunque el dashboard esté filtrado.
@@ -414,6 +426,7 @@ function DashboardMap({
     const baseFilters = {
       ...filters,
       municipios: [],
+      permisos: [],
     };
 
     if (geoLevel === 'estado' || selectedStateIds.length !== 1) {
@@ -753,6 +766,10 @@ function DashboardMap({
       return;
     }
 
+    if (isPointPermitFilterActive) {
+      return;
+    }
+
     let targetFeatures = [];
 
     if (selectedMunicipalityIds.length > 0) {
@@ -786,6 +803,7 @@ function DashboardMap({
     geoLevel,
     selectedStateIds,
     selectedMunicipalityIds,
+    isPointPermitFilterActive,
   ]);
 
   useEffect(() => {
@@ -866,7 +884,7 @@ function DashboardMap({
     const autoFitKey = `${geoLevel}|${selectedStateId || 'nacional'}`;
     const bounds = getBoundsForFeatures(enrichedGeoJson.features);
 
-    if (bounds && lastAutoFitKeyRef.current !== autoFitKey) {
+    if (bounds && lastAutoFitKeyRef.current !== autoFitKey && !isPointPermitFilterActive) {
       const fitOptions = isNationalView
         ? getNationalFitOptions()
         : getDetailFitOptions(geoLevel);
@@ -874,7 +892,7 @@ function DashboardMap({
       map.fitBounds(bounds, fitOptions);
       lastAutoFitKeyRef.current = autoFitKey;
     }
-  }, [mapReady, enrichedGeoJson, geoLevel, selectedStateId, isNationalView]);
+  }, [mapReady, enrichedGeoJson, geoLevel, selectedStateId, isNationalView, isPointPermitFilterActive]);
 
 
   useEffect(() => {
@@ -1124,6 +1142,36 @@ function DashboardMap({
           </svg>
         `;
 
+        const tooltip = document.createElement('span');
+        tooltip.className = 'dashboard-pin-hover-tooltip';
+
+        const tooltipKicker = document.createElement('span');
+        tooltipKicker.className = 'pin-tooltip-kicker';
+        tooltipKicker.textContent = 'Permiso';
+
+        const tooltipTitle = document.createElement('strong');
+        tooltipTitle.textContent = point.numero_permiso || 'Sin permiso';
+
+        const tooltipSubtitle = document.createElement('small');
+        tooltipSubtitle.textContent = point.permisionario || 'Sin permisionario';
+
+        const tooltipValue = document.createElement('b');
+        tooltipValue.textContent = `${formatNumber(point.capacidad || 0, {
+          maximumFractionDigits: 2,
+        })} MW`;
+
+        tooltip.append(tooltipKicker, tooltipTitle, tooltipSubtitle, tooltipValue);
+        element.appendChild(tooltip);
+
+        element.addEventListener('pointerenter', () => {
+          isPinHoveringRef.current = true;
+          popupRef.current?.remove();
+        });
+
+        element.addEventListener('pointerleave', () => {
+          isPinHoveringRef.current = false;
+        });
+
         element.addEventListener('click', (event) => {
           event.preventDefault();
           event.stopPropagation();
@@ -1132,6 +1180,18 @@ function DashboardMap({
 
           if (!permiso) {
             return;
+          }
+
+          const lng = Number(point.lng);
+          const lat = Number(point.lat);
+
+          if (Number.isFinite(lng) && Number.isFinite(lat)) {
+            map.easeTo({
+              center: [lng, lat],
+              zoom: Math.max(map.getZoom(), 12.2),
+              duration: 650,
+              essential: true,
+            });
           }
 
           if (!pointBaseFiltersRef.current) {
