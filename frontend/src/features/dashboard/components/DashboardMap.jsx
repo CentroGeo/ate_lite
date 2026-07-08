@@ -385,6 +385,7 @@ function DashboardMap({
   const [geoJson, setGeoJson] = useState(null);
   const [mapTitleContext, setMapTitleContext] = useState('Vista nacional por estados');
   const [selectedPoint, setSelectedPoint] = useState(null);
+  const [pinModeEnabled, setPinModeEnabled] = useState(false);
 
   const selectedStateIds = Array.isArray(filters?.estados)
     ? filters.estados.map(String)
@@ -459,7 +460,7 @@ function DashboardMap({
     error: pointsError,
   } = useDashboardPoints({
     filters: pointsFilters,
-    enabled: selectedMunicipalityIds.length > 0,
+    enabled: pinModeEnabled && selectedMunicipalityIds.length === 1,
     limit: 2000,
   });
 
@@ -985,10 +986,15 @@ function DashboardMap({
             ? selectedStateIds.filter((item) => item !== id)
             : [...selectedStateIds, id];
 
+          setPinModeEnabled(false);
+          setSelectedPoint(null);
+          pointBaseFiltersRef.current = null;
+
           onApplyFilters({
             ...filters,
             estados: nextStates,
             municipios: [],
+            permisos: [],
           });
 
           updateSelectionContext(
@@ -1005,10 +1011,15 @@ function DashboardMap({
           return;
         }
 
+        setPinModeEnabled(false);
+        setSelectedPoint(null);
+        pointBaseFiltersRef.current = null;
+
         onApplyFilters({
           ...filters,
           estados: [id],
           municipios: [],
+          permisos: [],
         });
 
         updateSelectionContext(buildSelectionLabel({
@@ -1028,10 +1039,15 @@ function DashboardMap({
           ? selectedMunicipalityIds.filter((item) => item !== id)
           : [...selectedMunicipalityIds, id];
 
+        setPinModeEnabled(false);
+        setSelectedPoint(null);
+        pointBaseFiltersRef.current = null;
+
         onApplyFilters({
           ...filters,
           estados: selectedStateId ? [selectedStateId] : selectedStateIds,
           municipios: nextMunicipalities,
+          permisos: [],
         });
 
         updateSelectionContext(buildSelectionLabel({
@@ -1043,10 +1059,15 @@ function DashboardMap({
         return;
       }
 
+      setPinModeEnabled(true);
+      setSelectedPoint(null);
+      pointBaseFiltersRef.current = null;
+
       onApplyFilters({
         ...filters,
         estados: parentId ? [parentId] : selectedStateIds,
         municipios: [id],
+        permisos: [],
       });
 
       const stateNameForLabel = parentId
@@ -1111,6 +1132,16 @@ function DashboardMap({
         const element = document.createElement('button');
         element.type = 'button';
         element.className = 'dashboard-pin-marker';
+
+        const pointPermit = String(point.numero_permiso || '').trim();
+        const activePermits = Array.isArray(filters?.permisos)
+          ? filters.permisos.map(String)
+          : [];
+
+        if (pointPermit && activePermits.includes(pointPermit)) {
+          element.classList.add('is-selected');
+        }
+
         element.setAttribute(
           'aria-label',
           point.numero_permiso || point.permisionario || 'Permiso georreferenciado'
@@ -1164,7 +1195,7 @@ function DashboardMap({
 
 
 
-        element.addEventListener('click', (event) => {
+        function handlePinSelect(event, forceMultiSelect = false) {
           event.preventDefault();
           event.stopPropagation();
 
@@ -1173,6 +1204,16 @@ function DashboardMap({
           if (!permiso) {
             return;
           }
+
+          const isMultiSelect = Boolean(
+            forceMultiSelect
+            || event.ctrlKey
+            || event.metaKey
+            || event.shiftKey
+            || event.getModifierState?.('Control')
+            || event.getModifierState?.('Meta')
+            || event.getModifierState?.('Shift')
+          );
 
           const lng = Number(point.lng);
           const lat = Number(point.lat);
@@ -1187,15 +1228,54 @@ function DashboardMap({
           }
 
           if (!pointBaseFiltersRef.current) {
-            pointBaseFiltersRef.current = JSON.parse(JSON.stringify(filters || {}));
+            const baseFilters = JSON.parse(JSON.stringify(filters || {}));
+            baseFilters.permisos = [];
+            pointBaseFiltersRef.current = baseFilters;
           }
 
+          const activePermits = Array.isArray(filters?.permisos)
+            ? filters.permisos.map(String)
+            : [];
+
+          const nextPermits = isMultiSelect
+            ? (
+                activePermits.includes(permiso)
+                  ? activePermits.filter((item) => item !== permiso)
+                  : [...activePermits, permiso]
+              )
+            : [permiso];
+
+          if (nextPermits.length === 0) {
+            setSelectedPoint(null);
+
+            if (pointBaseFiltersRef.current) {
+              onApplyFilters(pointBaseFiltersRef.current);
+            } else {
+              onApplyFilters({
+                ...filters,
+                permisos: [],
+              });
+            }
+
+            pointBaseFiltersRef.current = null;
+            return;
+          }
+
+          setPinModeEnabled(true);
           setSelectedPoint(point);
 
           onApplyFilters({
             ...filters,
-            permisos: [permiso],
+            permisos: nextPermits,
           });
+        }
+
+        element.addEventListener('click', (event) => {
+          handlePinSelect(event);
+        });
+
+        element.addEventListener('contextmenu', (event) => {
+          handlePinSelect(event, true);
         });
 
         const marker = new maplibregl.Marker({
@@ -1216,7 +1296,7 @@ function DashboardMap({
         pointMarkersRef.current = [];
       }
     };
-  }, [mapReady, pointsData, selectedMunicipalityIds]);
+  }, [mapReady, pointsData, selectedMunicipalityIds, filters, onApplyFilters]);
 
 
   useEffect(() => {
@@ -1247,6 +1327,7 @@ function DashboardMap({
 
   function resetToNational() {
     setSelectedPoint(null);
+    setPinModeEnabled(false);
     pointBaseFiltersRef.current = null;
 
     onApplyFilters({
