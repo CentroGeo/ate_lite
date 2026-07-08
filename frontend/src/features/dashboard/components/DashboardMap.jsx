@@ -383,6 +383,7 @@ function DashboardMap({
   const [metric, setMetric] = useState('permisos');
   const [geoJson, setGeoJson] = useState(null);
   const [mapTitleContext, setMapTitleContext] = useState('Vista nacional por estados');
+  const [selectedPoint, setSelectedPoint] = useState(null);
 
   const selectedStateIds = Array.isArray(filters?.estados)
     ? filters.estados.map(String)
@@ -1117,6 +1118,12 @@ function DashboardMap({
           </svg>
         `;
 
+        element.addEventListener('click', (event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          setSelectedPoint(point);
+        });
+
         const marker = new maplibregl.Marker({
           element,
           anchor: 'bottom',
@@ -1220,6 +1227,53 @@ function DashboardMap({
           <div className="map-busy-overlay">
             Actualizando mapa…
           </div>
+        )}
+
+        {selectedPoint && (
+          <aside className="map-point-detail-card">
+            <button
+              type="button"
+              className="map-point-close"
+              onClick={() => setSelectedPoint(null)}
+              aria-label="Cerrar detalle del permiso"
+            >
+              ×
+            </button>
+
+            <span className="point-detail-kicker">Permiso georreferenciado</span>
+            <strong>{selectedPoint.numero_permiso || 'Sin permiso'}</strong>
+            <p>{selectedPoint.permisionario || 'Sin permisionario'}</p>
+
+            <dl>
+              <div>
+                <dt>Ubicación</dt>
+                <dd>
+                  {[selectedPoint.municipio, selectedPoint.entidad]
+                    .filter(Boolean)
+                    .join(', ') || 'Sin ubicación'}
+                </dd>
+              </div>
+
+              <div>
+                <dt>Modalidad</dt>
+                <dd>{selectedPoint.modalidad || 'Sin modalidad'}</dd>
+              </div>
+
+              <div>
+                <dt>Tecnología</dt>
+                <dd>{selectedPoint.tecnologia || 'Sin tecnología'}</dd>
+              </div>
+
+              <div>
+                <dt>Capacidad</dt>
+                <dd>
+                  {formatNumber(selectedPoint.capacidad || 0, {
+                    maximumFractionDigits: 2,
+                  })} MW
+                </dd>
+              </div>
+            </dl>
+          </aside>
         )}
 
         <div className="map-title-box">

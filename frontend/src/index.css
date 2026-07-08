@@ -2008,3 +2008,112 @@ button {
   font-weight: 850;
   line-height: 1.18;
 }
+
+/* --- Detalle React de pin georreferenciado --- */
+
+.map-point-detail-card {
+  background:
+    radial-gradient(circle at top right, rgba(250, 204, 21, 0.24), transparent 42%),
+    linear-gradient(135deg, #7a244f 0%, #4c1234 100%);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 1.15rem;
+  box-shadow: 0 18px 42px rgba(15, 23, 42, 0.34);
+  color: #ffffff;
+  max-width: min(330px, calc(100% - 2rem));
+  padding: 1rem 1.05rem 1.05rem;
+  position: absolute;
+  right: 1rem;
+  top: 1rem;
+  z-index: 5;
+}
+
+.map-point-close {
+  align-items: center;
+  appearance: none;
+  background: rgba(255, 255, 255, 0.1);
+  border: 0;
+  border-radius: 999px;
+  color: rgba(255, 255, 255, 0.82);
+  cursor: pointer;
+  display: inline-flex;
+  font-size: 1.2rem;
+  font-weight: 900;
+  height: 1.7rem;
+  justify-content: center;
+  line-height: 1;
+  position: absolute;
+  right: 0.65rem;
+  top: 0.65rem;
+  width: 1.7rem;
+}
+
+.map-point-close:hover {
+  background: rgba(255, 255, 255, 0.18);
+  color: #ffffff;
+}
+
+.point-detail-kicker {
+  color: rgba(255, 255, 255, 0.66);
+  display: block;
+  font-size: 0.68rem;
+  font-weight: 950;
+  letter-spacing: 0.1em;
+  margin-right: 2rem;
+  text-transform: uppercase;
+}
+
+.map-point-detail-card > strong {
+  color: #fde68a;
+  display: block;
+  font-size: 1rem;
+  font-weight: 950;
+  line-height: 1.1;
+  margin-top: 0.28rem;
+  padding-right: 1.8rem;
+}
+
+.map-point-detail-card > p {
+  color: rgba(255, 255, 255, 0.82);
+  font-size: 0.78rem;
+  font-weight: 800;
+  line-height: 1.22;
+  margin: 0.35rem 1.4rem 0 0;
+}
+
+.map-point-detail-card dl {
+  border-top: 1px solid rgba(255, 255, 255, 0.16);
+  display: grid;
+  gap: 0.48rem;
+  margin: 0.7rem 0 0;
+  padding-top: 0.7rem;
+}
+
+.map-point-detail-card dl div {
+  display: grid;
+  gap: 0.12rem;
+}
+
+.map-point-detail-card dt {
+  color: rgba(255, 255, 255, 0.56);
+  font-size: 0.67rem;
+  font-weight: 950;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.map-point-detail-card dd {
+  color: #ffffff;
+  font-size: 0.78rem;
+  font-weight: 850;
+  line-height: 1.16;
+  margin: 0;
+}
+
+@media (max-width: 720px) {
+  .map-point-detail-card {
+    bottom: 1rem;
+    left: 1rem;
+    right: 1rem;
+    top: auto;
+  }
+}
