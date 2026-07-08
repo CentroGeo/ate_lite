@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import DashboardFilters from './components/DashboardFilters';
 import useDashboardAlerts from './hooks/useDashboardAlerts';
 import useDashboardSummary from './hooks/useDashboardSummary';
 
@@ -24,6 +25,20 @@ function formatDate(value) {
 export default function DashboardPage() {
   const [alertSource, setAlertSource] = useState('all');
   const [alertLevel, setAlertLevel] = useState(3);
+  const [dashboardFilters, setDashboardFilters] = useState({
+    startYear: '',
+    endYear: '',
+    tipoPeriodo: '',
+    outputPeriod: 'auto',
+    alertLevels: [],
+    alertTypes: [],
+    estados: [],
+    municipios: [],
+    modalidades: [],
+    tecnologias: [],
+    permisos: [],
+    permisionarios: [],
+  });
 
   const {
     data,
@@ -116,6 +131,12 @@ export default function DashboardPage() {
       <h1 className="section-title">
         Dashboard de Generación de Energía Eléctrica
       </h1>
+
+      <DashboardFilters
+        filters={dashboardFilters}
+        onApply={setDashboardFilters}
+        onClear={setDashboardFilters}
+      />
 
       {loading && (
         <section className="db-card">
