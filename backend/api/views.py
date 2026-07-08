@@ -104,3 +104,38 @@ def map_data(request):
         'stations': stations
     }
     return JsonResponse(data, safe=False)
+
+@csrf_exempt
+def dashboard_summary(request):
+    """
+    Primer endpoint del dashboard.
+
+    Por ahora regresa datos de prueba para validar la conexión:
+    React -> Django -> JSON -> React.
+
+    Después reemplazaremos estos valores con consultas reales.
+    """
+    data = {
+        "status": "success",
+        "summary": {
+            "total_permisos": 128,
+            "total_vigentes": 104,
+            "generacion_anual": 25678.45,
+            "inversion_estimada": 918.32,
+            "total_permisionarios": 76,
+            "total_permisionarios_vigentes": 62,
+            "total_empresas": 48,
+            "total_empresas_vigentes": 41,
+        },
+        "alerts": {
+            "permisos_sin_historico": 3,
+            "permisos_sin_georeferencia": 5,
+            "sin_consumo": 2,
+            "sin_generacion": 4,
+            "factor_planta_mayor_100": 1,
+            "alta_variabilidad": 7,
+        },
+    }
+
+    return JsonResponse(data)
+
