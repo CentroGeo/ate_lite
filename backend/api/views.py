@@ -165,7 +165,7 @@ def get_query_int(request, name):
 
 
 def parse_dashboard_filters(request):
-    return {
+    filters = {
         "start_year": get_query_int(request, "startYear"),
         "end_year": get_query_int(request, "endYear"),
         "tipo_periodo": request.GET.get("tipoPeriodo") or "",
@@ -179,6 +179,24 @@ def parse_dashboard_filters(request):
         "permisos": get_query_values(request, "permisos"),
         "permisionarios": get_query_values(request, "permisionarios"),
     }
+
+    return filters
+
+
+def validate_dashboard_filters(filters):
+    errors = []
+
+    if (
+        filters["start_year"] is not None
+        and filters["end_year"] is not None
+        and filters["start_year"] > filters["end_year"]
+    ):
+        errors.append({
+            "field": "years",
+            "message": "El año inicial no puede ser mayor que el año final.",
+        })
+
+    return errors
 
 
 def add_any_condition(conditions, params, expression, values):
@@ -377,6 +395,16 @@ def dashboard_summary(request):
     tecnologias, permisos, permisionarios, alertTypes, alertLevels.
     """
     filters = parse_dashboard_filters(request)
+    filter_errors = validate_dashboard_filters(filters)
+
+    if filter_errors:
+        return JsonResponse(
+            {
+                "status": "error",
+                "errors": filter_errors,
+            },
+            status=400,
+        )
 
     permisos_where, permisos_params = build_permisos_where(filters, "p")
     consumos_where, consumos_params = build_consumos_where(filters, "c")
@@ -703,6 +731,16 @@ def dashboard_alerts(request):
     - limit: máximo 100
     """
     filters = parse_dashboard_filters(request)
+    filter_errors = validate_dashboard_filters(filters)
+
+    if filter_errors:
+        return JsonResponse(
+            {
+                "status": "error",
+                "errors": filter_errors,
+            },
+            status=400,
+        )
 
     source = request.GET.get("source", "all").lower()
     level = request.GET.get("level", "3")

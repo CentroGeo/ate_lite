@@ -56,6 +56,20 @@ export default function DashboardFilters({ filters, onApply, onClear }) {
   const [draft, setDraft] = useState(() => normalizeFilters(filters));
   const [isOpen, setIsOpen] = useState(false);
 
+  const validationErrors = useMemo(() => {
+    const errors = [];
+
+    if (
+      draft.startYear
+      && draft.endYear
+      && Number(draft.startYear) > Number(draft.endYear)
+    ) {
+      errors.push('El año inicial no puede ser mayor que el año final.');
+    }
+
+    return errors;
+  }, [draft.startYear, draft.endYear]);
+
   const activeChips = useMemo(() => {
     const chips = [];
 
@@ -126,6 +140,10 @@ export default function DashboardFilters({ filters, onApply, onClear }) {
   }
 
   function applyFilters() {
+    if (validationErrors.length > 0) {
+      return;
+    }
+
     onApply(draft);
     setIsOpen(false);
   }
@@ -201,6 +219,14 @@ export default function DashboardFilters({ filters, onApply, onClear }) {
 
           {!loading && !error && (
             <>
+              {validationErrors.length > 0 && (
+                <div className="filters-validation">
+                  {validationErrors.map((message) => (
+                    <p key={message}>{message}</p>
+                  ))}
+                </div>
+              )}
+
               <div className="filters-grid">
                 <fieldset className="filter-group">
                   <legend>Tiempo</legend>
@@ -424,6 +450,7 @@ export default function DashboardFilters({ filters, onApply, onClear }) {
                   className="filters-apply"
                   type="button"
                   onClick={applyFilters}
+                  disabled={validationErrors.length > 0}
                 >
                   Aplicar filtros
                 </button>
