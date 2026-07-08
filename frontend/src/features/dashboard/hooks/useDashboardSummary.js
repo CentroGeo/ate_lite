@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { apiFetch } from '../../../utils/apiClient';
 import { appendDashboardFilters } from '../utils/dashboardFilters';
 
@@ -6,6 +6,7 @@ export default function useDashboardSummary(filters = {}) {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const hasLoadedOnceRef = useRef(false);
 
   const filterKey = useMemo(() => JSON.stringify(filters || {}), [filters]);
 
@@ -14,7 +15,9 @@ export default function useDashboardSummary(filters = {}) {
 
     async function loadDashboardSummary() {
       try {
-        setLoading(true);
+        if (!hasLoadedOnceRef.current) {
+          setLoading(true);
+        }
         setError('');
 
         const params = appendDashboardFilters(new URLSearchParams(), filters);
@@ -27,6 +30,7 @@ export default function useDashboardSummary(filters = {}) {
 
         if (isMounted) {
           setData(response);
+          hasLoadedOnceRef.current = true;
         }
       } catch (err) {
         if (isMounted) {

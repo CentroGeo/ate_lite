@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import DashboardFilters from './components/DashboardFilters';
 import GenerationTimeseriesChart from './components/GenerationTimeseriesChart';
+import DashboardMap from './components/DashboardMap';
 import useDashboardAlerts from './hooks/useDashboardAlerts';
 import useDashboardSummary from './hooks/useDashboardSummary';
 import useDashboardTimeseries from './hooks/useDashboardTimeseries';
@@ -177,11 +178,18 @@ export default function DashboardPage() {
             ))}
           </section>
 
-          <GenerationTimeseriesChart
-            data={timeseriesData}
-            loading={timeseriesLoading}
-            error={timeseriesError}
-          />
+          <section className="dashboard-map-chart-layout">
+            <DashboardMap
+              filters={dashboardFilters}
+              onApplyFilters={setDashboardFilters}
+            />
+
+            <GenerationTimeseriesChart
+              data={timeseriesData}
+              loading={timeseriesLoading}
+              error={timeseriesError}
+            />
+          </section>
 
           <h2 className="section-title">Alertas principales</h2>
 

@@ -87,21 +87,24 @@ export default function GenerationTimeseriesChart({ data, loading, error }) {
                 type="monotone"
                 dataKey="generacion_bruta"
                 name="Generación bruta"
-                strokeWidth={2}
+                stroke="#7a244f"
+                strokeWidth={2.5}
                 dot={false}
               />
               <Line
                 type="monotone"
                 dataKey="generacion_neta"
                 name="Generación neta"
-                strokeWidth={2}
+                stroke="#2563eb"
+                strokeWidth={2.5}
                 dot={false}
               />
               <Line
                 type="monotone"
                 dataKey="consumo_auxiliar"
                 name="Consumo auxiliar"
-                strokeWidth={2}
+                stroke="#f59e0b"
+                strokeWidth={2.5}
                 dot={false}
               />
             </LineChart>
