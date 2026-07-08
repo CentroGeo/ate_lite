@@ -44,7 +44,7 @@ export default function DashboardPage() {
     data,
     loading,
     error,
-  } = useDashboardSummary();
+  } = useDashboardSummary(dashboardFilters);
 
   const {
     data: alertsDetail,
@@ -54,6 +54,7 @@ export default function DashboardPage() {
     source: alertSource,
     level: alertLevel,
     limit: 10,
+    filters: dashboardFilters,
   });
 
   const summary = data?.summary || {};

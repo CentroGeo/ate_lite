@@ -125,110 +125,460 @@ def to_float(value):
     return float(value or 0)
 
 
+
+
+def get_query_values(request, name):
+    values = request.GET.getlist(name)
+    output = []
+
+    for value in values:
+        for part in str(value).split(","):
+            part = part.strip()
+            if part:
+                output.append(part)
+
+    return output
+
+
+def get_query_int_values(request, name):
+    output = []
+
+    for value in get_query_values(request, name):
+        try:
+            output.append(int(value))
+        except ValueError:
+            pass
+
+    return output
+
+
+def get_query_int(request, name):
+    value = request.GET.get(name)
+
+    if value in (None, ""):
+        return None
+
+    try:
+        return int(value)
+    except ValueError:
+        return None
+
+
+def parse_dashboard_filters(request):
+    return {
+        "start_year": get_query_int(request, "startYear"),
+        "end_year": get_query_int(request, "endYear"),
+        "tipo_periodo": request.GET.get("tipoPeriodo") or "",
+        "output_period": request.GET.get("outputPeriod") or "auto",
+        "alert_levels": get_query_int_values(request, "alertLevels"),
+        "alert_types": get_query_int_values(request, "alertTypes"),
+        "estados": get_query_values(request, "estados"),
+        "municipios": get_query_values(request, "municipios"),
+        "modalidades": get_query_values(request, "modalidades"),
+        "tecnologias": get_query_values(request, "tecnologias"),
+        "permisos": get_query_values(request, "permisos"),
+        "permisionarios": get_query_values(request, "permisionarios"),
+    }
+
+
+def add_any_condition(conditions, params, expression, values):
+    if values:
+        conditions.append(f"{expression} = ANY(%s)")
+        params.append(values)
+
+
+def build_temporal_consumos_where(filters, alias):
+    conditions = ["1=1"]
+    params = []
+
+    if filters["start_year"]:
+        conditions.append(f'{alias}."Anio" >= %s')
+        params.append(filters["start_year"])
+
+    if filters["end_year"]:
+        conditions.append(f'{alias}."Anio" <= %s')
+        params.append(filters["end_year"])
+
+    if filters["tipo_periodo"]:
+        conditions.append(f'NULLIF(BTRIM({alias}."TipoPeriodo"), \'\') = %s')
+        params.append(filters["tipo_periodo"])
+
+    return " AND ".join(conditions), params
+
+
+def build_permisos_geo_where(filters, alias):
+    conditions = ["1=1"]
+    params = []
+
+    add_any_condition(
+        conditions,
+        params,
+        f'NULLIF(BTRIM({alias}."inegi_identidad"), \'\')',
+        filters["estados"],
+    )
+
+    add_any_condition(
+        conditions,
+        params,
+        (
+            f'CONCAT('
+            f'COALESCE(NULLIF(BTRIM({alias}."inegi_identidad"), \'\'), \'\'), '
+            f'COALESCE(NULLIF(BTRIM({alias}."inegi_idmunicipio"), \'\'), \'\')'
+            f')'
+        ),
+        filters["municipios"],
+    )
+
+    return " AND ".join(conditions), params
+
+
+def build_permisos_where(filters, alias="p"):
+    conditions = ["1=1"]
+    params = []
+
+    geo_where, geo_params = build_permisos_geo_where(filters, alias)
+
+    if geo_where != "1=1":
+        conditions.append(geo_where)
+        params.extend(geo_params)
+
+    add_any_condition(
+        conditions,
+        params,
+        f'NULLIF(BTRIM({alias}."Modalidad"), \'\')',
+        filters["modalidades"],
+    )
+
+    add_any_condition(
+        conditions,
+        params,
+        f'NULLIF(BTRIM({alias}."Tecnologia"), \'\')',
+        filters["tecnologias"],
+    )
+
+    add_any_condition(
+        conditions,
+        params,
+        f'NULLIF(BTRIM({alias}."NumeroPermiso"), \'\')',
+        filters["permisos"],
+    )
+
+    add_any_condition(
+        conditions,
+        params,
+        (
+            f'COALESCE('
+            f'NULLIF(BTRIM({alias}."Permisionario"), \'\'), '
+            f'NULLIF(BTRIM({alias}."Razon_Social_Autorizada"), \'\')'
+            f')'
+        ),
+        filters["permisionarios"],
+    )
+
+    temporal_where, temporal_params = build_temporal_consumos_where(filters, "pc")
+
+    if temporal_where != "1=1":
+        conditions.append(f"""
+            EXISTS (
+                SELECT 1
+                FROM electricidad.dashboard_consumos pc
+                WHERE NULLIF(BTRIM(pc."NumeroPermiso"), '') =
+                      NULLIF(BTRIM({alias}."NumeroPermiso"), '')
+                  AND {temporal_where}
+            )
+        """)
+        params.extend(temporal_params)
+
+    return " AND ".join(conditions), params
+
+
+def build_consumos_where(filters, alias="c"):
+    conditions = ["1=1"]
+    params = []
+
+    temporal_where, temporal_params = build_temporal_consumos_where(filters, alias)
+
+    if temporal_where != "1=1":
+        conditions.append(temporal_where)
+        params.extend(temporal_params)
+
+    add_any_condition(
+        conditions,
+        params,
+        f'NULLIF(BTRIM({alias}."Modalidad"), \'\')',
+        filters["modalidades"],
+    )
+
+    add_any_condition(
+        conditions,
+        params,
+        f'NULLIF(BTRIM({alias}."Tecnologia"), \'\')',
+        filters["tecnologias"],
+    )
+
+    add_any_condition(
+        conditions,
+        params,
+        f'NULLIF(BTRIM({alias}."NumeroPermiso"), \'\')',
+        filters["permisos"],
+    )
+
+    add_any_condition(
+        conditions,
+        params,
+        (
+            f'COALESCE('
+            f'NULLIF(BTRIM({alias}."Permisionario"), \'\'), '
+            f'NULLIF(BTRIM({alias}."Razon_Social_Autorizada"), \'\')'
+            f')'
+        ),
+        filters["permisionarios"],
+    )
+
+    geo_where, geo_params = build_permisos_geo_where(filters, "cp")
+
+    if geo_where != "1=1":
+        conditions.append(f"""
+            EXISTS (
+                SELECT 1
+                FROM electricidad.dashboard_permisos cp
+                WHERE NULLIF(BTRIM(cp."NumeroPermiso"), '') =
+                      NULLIF(BTRIM({alias}."NumeroPermiso"), '')
+                  AND {geo_where}
+            )
+        """)
+        params.extend(geo_params)
+
+    return " AND ".join(conditions), params
+
+
+def build_alert_where(filters, alias):
+    conditions = []
+    params = []
+
+    if filters["alert_levels"]:
+        add_any_condition(conditions, params, f"{alias}.id_nivel", filters["alert_levels"])
+    else:
+        conditions.append(f"{alias}.id_nivel > 0")
+
+    add_any_condition(conditions, params, f"{alias}.id_alerta", filters["alert_types"])
+
+    return " AND ".join(conditions), params
+
+
+
 @csrf_exempt
 def dashboard_summary(request):
     """
-    Resumen principal del dashboard usando las vistas y bitácoras nuevas
-    del schema electricidad.
+    Resumen principal del dashboard aplicando filtros globales.
 
-    Regla inicial:
-    - id_nivel = 0 significa Correcto
-    - id_nivel > 0 se considera alerta/revisión
+    Los filtros llegan por query params:
+    startYear, endYear, tipoPeriodo, estados, municipios, modalidades,
+    tecnologias, permisos, permisionarios, alertTypes, alertLevels.
     """
-    with connection.cursor() as cursor:
-        cursor.execute("""
-            SELECT
-                COUNT(DISTINCT NULLIF(BTRIM("NumeroPermiso"), '')) AS total_permisos,
+    filters = parse_dashboard_filters(request)
 
-                COUNT(DISTINCT CASE
-                    WHEN COALESCE("Estatus_Legal", "Estatus_BDI", '') ILIKE '%vigente%'
-                    THEN NULLIF(BTRIM("NumeroPermiso"), '')
-                END) AS total_vigentes,
+    permisos_where, permisos_params = build_permisos_where(filters, "p")
+    consumos_where, consumos_params = build_consumos_where(filters, "c")
+    selected_consumos_sql = "SELECT * FROM filtered_consumos"
 
-                COUNT(DISTINCT COALESCE(
-                    NULLIF(BTRIM("Permisionario"), ''),
-                    NULLIF(BTRIM("Razon_Social_Autorizada"), '')
-                )) AS total_permisionarios,
-
-                COUNT(DISTINCT COALESCE(
-                    NULLIF(BTRIM("Razon_Social_Autorizada"), ''),
-                    NULLIF(BTRIM("Permisionario"), '')
-                )) AS total_empresas,
-
-                COUNT(DISTINCT NULLIF(BTRIM("CentralEntidadFederativa"), '')) AS total_entidades,
-                COUNT(DISTINCT NULLIF(BTRIM("CentralMunicipio"), '')) AS total_municipios,
-
-                COALESCE(SUM("TotalCapacidad"), 0) AS total_capacidad,
-                COUNT(*) AS registros_permisos
-            FROM electricidad.dashboard_permisos;
-        """)
-        permisos = dictfetchone(cursor)
-
-        cursor.execute("""
-            WITH ultimo_anio AS (
-                SELECT MAX("Anio") AS anio
-                FROM electricidad.dashboard_consumos
+    if not filters["start_year"] and not filters["end_year"]:
+        selected_consumos_sql = """
+            SELECT *
+            FROM filtered_consumos
+            WHERE "Anio" = (
+                SELECT MAX("Anio")
+                FROM filtered_consumos
                 WHERE "Anio" IS NOT NULL
             )
-            SELECT
-                ultimo_anio.anio AS anio_generacion,
-                COUNT(*) AS registros_consumo,
-                COUNT(DISTINCT NULLIF(BTRIM(c."NumeroPermiso"), '')) AS permisos_con_consumo,
-                COALESCE(SUM(c."GeneracionNeta"), 0) AS generacion_neta,
-                COALESCE(SUM(c."GeneracionBruta"), 0) AS generacion_bruta,
-                COALESCE(SUM(c."ConsumoAuxiliar"), 0) AS consumo_auxiliar
-            FROM electricidad.dashboard_consumos c
-            CROSS JOIN ultimo_anio
-            WHERE c."Anio" = ultimo_anio.anio
-            GROUP BY ultimo_anio.anio;
-        """)
-        consumos = dictfetchone(cursor)
+        """
 
-        cursor.execute("""
-            WITH alertas AS (
+    with connection.cursor() as cursor:
+        cursor.execute(f"""
+            WITH filtered_permisos AS (
+                SELECT p.*
+                FROM electricidad.dashboard_permisos p
+                WHERE {permisos_where}
+            ),
+            filtered_consumos AS (
+                SELECT c.*
+                FROM electricidad.dashboard_consumos c
+                WHERE {consumos_where}
+            ),
+            selected_consumos AS (
+                {selected_consumos_sql}
+            )
+            SELECT
+                (
+                    SELECT COUNT(DISTINCT NULLIF(BTRIM("NumeroPermiso"), ''))
+                    FROM filtered_permisos
+                ) AS total_permisos,
+
+                (
+                    SELECT COUNT(DISTINCT CASE
+                        WHEN COALESCE("Estatus_Legal", "Estatus_BDI", '') ILIKE '%%vigente%%'
+                        THEN NULLIF(BTRIM("NumeroPermiso"), '')
+                    END)
+                    FROM filtered_permisos
+                ) AS total_vigentes,
+
+                (
+                    SELECT COUNT(DISTINCT COALESCE(
+                        NULLIF(BTRIM("Permisionario"), ''),
+                        NULLIF(BTRIM("Razon_Social_Autorizada"), '')
+                    ))
+                    FROM filtered_permisos
+                ) AS total_permisionarios,
+
+                (
+                    SELECT COUNT(DISTINCT COALESCE(
+                        NULLIF(BTRIM("Razon_Social_Autorizada"), ''),
+                        NULLIF(BTRIM("Permisionario"), '')
+                    ))
+                    FROM filtered_permisos
+                ) AS total_empresas,
+
+                (
+                    SELECT COUNT(DISTINCT NULLIF(BTRIM("inegi_identidad"), ''))
+                    FROM filtered_permisos
+                ) AS total_entidades,
+
+                (
+                    SELECT COUNT(DISTINCT CONCAT(
+                        COALESCE(NULLIF(BTRIM("inegi_identidad"), ''), ''),
+                        COALESCE(NULLIF(BTRIM("inegi_idmunicipio"), ''), '')
+                    ))
+                    FROM filtered_permisos
+                    WHERE NULLIF(BTRIM("inegi_idmunicipio"), '') IS NOT NULL
+                ) AS total_municipios,
+
+                (
+                    SELECT COALESCE(SUM("TotalCapacidad"), 0)
+                    FROM filtered_permisos
+                ) AS total_capacidad,
+
+                (
+                    SELECT COUNT(*)
+                    FROM filtered_permisos
+                ) AS registros_permisos,
+
+                (
+                    SELECT MIN("Anio")
+                    FROM selected_consumos
+                ) AS anio_inicio,
+
+                (
+                    SELECT MAX("Anio")
+                    FROM selected_consumos
+                ) AS anio_generacion,
+
+                (
+                    SELECT COUNT(*)
+                    FROM selected_consumos
+                ) AS registros_consumo,
+
+                (
+                    SELECT COUNT(DISTINCT NULLIF(BTRIM("NumeroPermiso"), ''))
+                    FROM selected_consumos
+                ) AS permisos_con_consumo,
+
+                (
+                    SELECT COALESCE(SUM("GeneracionNeta"), 0)
+                    FROM selected_consumos
+                ) AS generacion_neta,
+
+                (
+                    SELECT COALESCE(SUM("GeneracionBruta"), 0)
+                    FROM selected_consumos
+                ) AS generacion_bruta,
+
+                (
+                    SELECT COALESCE(SUM("ConsumoAuxiliar"), 0)
+                    FROM selected_consumos
+                ) AS consumo_auxiliar;
+        """, permisos_params + consumos_params)
+        resumen = dictfetchone(cursor)
+
+        alert_where_p, alert_params_p = build_alert_where(filters, "ap")
+        alert_where_c, alert_params_c = build_alert_where(filters, "ac")
+
+        cursor.execute(f"""
+            WITH filtered_permisos AS (
+                SELECT p.*
+                FROM electricidad.dashboard_permisos p
+                WHERE {permisos_where}
+            ),
+            filtered_consumos AS (
+                SELECT c.*
+                FROM electricidad.dashboard_consumos c
+                WHERE {consumos_where}
+            ),
+            alertas AS (
                 SELECT
                     'Permiso' AS origen,
-                    id_alerta,
-                    id_nivel
-                FROM electricidad.bitacora_alertas_permisos
+                    ap.id_alerta,
+                    ap.id_nivel
+                FROM electricidad.bitacora_alertas_permisos ap
+                JOIN filtered_permisos fp
+                  ON NULLIF(BTRIM(fp."NumeroPermiso"), '') =
+                     NULLIF(BTRIM(ap."NumeroPermiso"), '')
+                WHERE {alert_where_p}
 
                 UNION ALL
 
                 SELECT
                     'Consumo' AS origen,
-                    id_alerta,
-                    id_nivel
-                FROM electricidad.bitacora_alertas_consumos
+                    ac.id_alerta,
+                    ac.id_nivel
+                FROM electricidad.bitacora_alertas_consumos ac
+                JOIN filtered_consumos fc
+                  ON fc.id_registro = ac.id_registro
+                WHERE {alert_where_c}
             )
             SELECT
-                COUNT(*) FILTER (WHERE id_nivel > 0) AS total_alertas,
-                COUNT(*) FILTER (WHERE origen = 'Permiso' AND id_nivel > 0) AS total_alertas_permisos,
-                COUNT(*) FILTER (WHERE origen = 'Consumo' AND id_nivel > 0) AS total_alertas_consumos,
+                COUNT(*) AS total_alertas,
+                COUNT(*) FILTER (WHERE origen = 'Permiso') AS total_alertas_permisos,
+                COUNT(*) FILTER (WHERE origen = 'Consumo') AS total_alertas_consumos,
                 COUNT(*) FILTER (WHERE id_nivel = 3) AS alertas_criticas,
                 COUNT(*) FILTER (WHERE id_nivel = 2) AS alertas_advertencia,
                 COUNT(*) FILTER (WHERE id_nivel = 1) AS alertas_inactivas,
 
-                COUNT(*) FILTER (WHERE id_alerta = 1 AND id_nivel > 0) AS permisos_sin_georeferencia,
-                COUNT(*) FILTER (WHERE id_alerta = 10 AND id_nivel > 0) AS permisos_sin_historico,
-                COUNT(*) FILTER (WHERE id_alerta = 7 AND id_nivel > 0) AS sin_consumo,
-                COUNT(*) FILTER (WHERE id_alerta = 11 AND id_nivel > 0) AS sin_generacion,
-                COUNT(*) FILTER (WHERE id_alerta = 5 AND id_nivel > 0) AS factor_planta_mayor_100,
-                COUNT(*) FILTER (WHERE id_alerta = 12 AND id_nivel > 0) AS alta_variabilidad
+                COUNT(*) FILTER (WHERE id_alerta = 1) AS permisos_sin_georeferencia,
+                COUNT(*) FILTER (WHERE id_alerta = 10) AS permisos_sin_historico,
+                COUNT(*) FILTER (WHERE id_alerta = 7) AS sin_consumo,
+                COUNT(*) FILTER (WHERE id_alerta = 11) AS sin_generacion,
+                COUNT(*) FILTER (WHERE id_alerta = 5) AS factor_planta_mayor_100,
+                COUNT(*) FILTER (WHERE id_alerta = 12) AS alta_variabilidad
             FROM alertas;
-        """)
+        """, permisos_params + consumos_params + alert_params_p + alert_params_c)
         alertas = dictfetchone(cursor)
 
-        cursor.execute("""
-            WITH alertas AS (
-                SELECT id_nivel
-                FROM electricidad.bitacora_alertas_permisos
-                WHERE id_nivel > 0
+        cursor.execute(f"""
+            WITH filtered_permisos AS (
+                SELECT p.*
+                FROM electricidad.dashboard_permisos p
+                WHERE {permisos_where}
+            ),
+            filtered_consumos AS (
+                SELECT c.*
+                FROM electricidad.dashboard_consumos c
+                WHERE {consumos_where}
+            ),
+            alertas AS (
+                SELECT ap.id_alerta, ap.id_nivel
+                FROM electricidad.bitacora_alertas_permisos ap
+                JOIN filtered_permisos fp
+                  ON NULLIF(BTRIM(fp."NumeroPermiso"), '') =
+                     NULLIF(BTRIM(ap."NumeroPermiso"), '')
+                WHERE {alert_where_p}
 
                 UNION ALL
 
-                SELECT id_nivel
-                FROM electricidad.bitacora_alertas_consumos
-                WHERE id_nivel > 0
+                SELECT ac.id_alerta, ac.id_nivel
+                FROM electricidad.bitacora_alertas_consumos ac
+                JOIN filtered_consumos fc
+                  ON fc.id_registro = ac.id_registro
+                WHERE {alert_where_c}
             )
             SELECT
                 n.id_nivel,
@@ -240,20 +590,35 @@ def dashboard_summary(request):
             WHERE n.id_nivel > 0
             GROUP BY n.id_nivel, n.descripcion_nivel
             ORDER BY n.id_nivel;
-        """)
+        """, permisos_params + consumos_params + alert_params_p + alert_params_c)
         alertas_por_nivel = dictfetchall(cursor)
 
-        cursor.execute("""
-            WITH alertas AS (
-                SELECT id_alerta, id_nivel
-                FROM electricidad.bitacora_alertas_permisos
-                WHERE id_nivel > 0
+        cursor.execute(f"""
+            WITH filtered_permisos AS (
+                SELECT p.*
+                FROM electricidad.dashboard_permisos p
+                WHERE {permisos_where}
+            ),
+            filtered_consumos AS (
+                SELECT c.*
+                FROM electricidad.dashboard_consumos c
+                WHERE {consumos_where}
+            ),
+            alertas AS (
+                SELECT ap.id_alerta, ap.id_nivel
+                FROM electricidad.bitacora_alertas_permisos ap
+                JOIN filtered_permisos fp
+                  ON NULLIF(BTRIM(fp."NumeroPermiso"), '') =
+                     NULLIF(BTRIM(ap."NumeroPermiso"), '')
+                WHERE {alert_where_p}
 
                 UNION ALL
 
-                SELECT id_alerta, id_nivel
-                FROM electricidad.bitacora_alertas_consumos
-                WHERE id_nivel > 0
+                SELECT ac.id_alerta, ac.id_nivel
+                FROM electricidad.bitacora_alertas_consumos ac
+                JOIN filtered_consumos fc
+                  ON fc.id_registro = ac.id_registro
+                WHERE {alert_where_c}
             )
             SELECT
                 c.id_alerta,
@@ -266,27 +631,29 @@ def dashboard_summary(request):
             GROUP BY c.id_alerta, c.nombre_alerta, c.nivel_categoria
             ORDER BY total DESC, c.id_alerta
             LIMIT 10;
-        """)
+        """, permisos_params + consumos_params + alert_params_p + alert_params_c)
         top_alertas = dictfetchall(cursor)
 
     data = {
         "status": "success",
+        "filters": filters,
         "summary": {
-            "total_permisos": to_int(permisos.get("total_permisos")),
-            "total_vigentes": to_int(permisos.get("total_vigentes")),
-            "total_permisionarios": to_int(permisos.get("total_permisionarios")),
-            "total_empresas": to_int(permisos.get("total_empresas")),
-            "total_entidades": to_int(permisos.get("total_entidades")),
-            "total_municipios": to_int(permisos.get("total_municipios")),
-            "total_capacidad": to_float(permisos.get("total_capacidad")),
-            "registros_permisos": to_int(permisos.get("registros_permisos")),
+            "total_permisos": to_int(resumen.get("total_permisos")),
+            "total_vigentes": to_int(resumen.get("total_vigentes")),
+            "total_permisionarios": to_int(resumen.get("total_permisionarios")),
+            "total_empresas": to_int(resumen.get("total_empresas")),
+            "total_entidades": to_int(resumen.get("total_entidades")),
+            "total_municipios": to_int(resumen.get("total_municipios")),
+            "total_capacidad": to_float(resumen.get("total_capacidad")),
+            "registros_permisos": to_int(resumen.get("registros_permisos")),
 
-            "anio_generacion": to_int(consumos.get("anio_generacion")),
-            "registros_consumo": to_int(consumos.get("registros_consumo")),
-            "permisos_con_consumo": to_int(consumos.get("permisos_con_consumo")),
-            "generacion_neta": to_float(consumos.get("generacion_neta")),
-            "generacion_bruta": to_float(consumos.get("generacion_bruta")),
-            "consumo_auxiliar": to_float(consumos.get("consumo_auxiliar")),
+            "anio_inicio": to_int(resumen.get("anio_inicio")),
+            "anio_generacion": to_int(resumen.get("anio_generacion")),
+            "registros_consumo": to_int(resumen.get("registros_consumo")),
+            "permisos_con_consumo": to_int(resumen.get("permisos_con_consumo")),
+            "generacion_neta": to_float(resumen.get("generacion_neta")),
+            "generacion_bruta": to_float(resumen.get("generacion_bruta")),
+            "consumo_auxiliar": to_float(resumen.get("consumo_auxiliar")),
         },
         "alerts": {
             "total_alertas": to_int(alertas.get("total_alertas")),
@@ -328,18 +695,15 @@ def dashboard_summary(request):
 @csrf_exempt
 def dashboard_alerts(request):
     """
-    Devuelve detalle de alertas recientes.
+    Devuelve detalle de alertas recientes aplicando filtros globales.
 
-    Query params opcionales:
+    Query params especiales:
     - source: all | permiso | consumo
     - level: 1 | 2 | 3
-    - limit: cantidad de registros, máximo 100
-
-    Ejemplos:
-    /api/dashboard/alerts/
-    /api/dashboard/alerts/?level=3
-    /api/dashboard/alerts/?source=permiso&level=2
+    - limit: máximo 100
     """
+    filters = parse_dashboard_filters(request)
+
     source = request.GET.get("source", "all").lower()
     level = request.GET.get("level", "3")
     limit = request.GET.get("limit", "25")
@@ -362,34 +726,63 @@ def dashboard_alerts(request):
 
     limit = max(1, min(limit, 100))
 
+    permisos_where, permisos_params = build_permisos_where(filters, "p")
+    consumos_where, consumos_params = build_consumos_where(filters, "c")
+
+    alert_types_p = []
+    alert_types_c = []
+
+    if filters["alert_types"]:
+        alert_types_p.append("ap.id_alerta = ANY(%s)")
+        alert_types_c.append("ac.id_alerta = ANY(%s)")
+
+    alert_where_p = " AND ".join(["ap.id_nivel = %s"] + alert_types_p)
+    alert_where_c = " AND ".join(["ac.id_nivel = %s"] + alert_types_c)
+
+    alert_params_p = [level]
+    alert_params_c = [level]
+
+    if filters["alert_types"]:
+        alert_params_p.append(filters["alert_types"])
+        alert_params_c.append(filters["alert_types"])
+
     source_where = ""
-    params = [level, limit]
 
     if source == "permiso":
-        source_where = "WHERE origen = 'Permiso'"
+        source_where = "WHERE au.origen = 'Permiso'"
     elif source == "consumo":
-        source_where = "WHERE origen = 'Consumo'"
+        source_where = "WHERE au.origen = 'Consumo'"
 
     sql = f"""
-        WITH permisos_base AS (
+        WITH filtered_permisos AS (
+            SELECT p.*
+            FROM electricidad.dashboard_permisos p
+            WHERE {permisos_where}
+        ),
+        filtered_consumos AS (
+            SELECT c.*
+            FROM electricidad.dashboard_consumos c
+            WHERE {consumos_where}
+        ),
+        permisos_base AS (
             SELECT
                 NULLIF(BTRIM("NumeroPermiso"), '') AS numero_permiso,
                 MAX(NULLIF(BTRIM("Permisionario"), '')) AS permisionario,
                 MAX(NULLIF(BTRIM("Razon_Social_Autorizada"), '')) AS razon_social,
                 MAX(NULLIF(BTRIM("CentralEntidadFederativa"), '')) AS entidad,
                 MAX(NULLIF(BTRIM("CentralMunicipio"), '')) AS municipio
-            FROM electricidad.dashboard_permisos
+            FROM filtered_permisos
             GROUP BY NULLIF(BTRIM("NumeroPermiso"), '')
         ),
         alertas_unidas AS (
             SELECT
                 'Permiso' AS origen,
-                p."NumeroPermiso" AS numero_permiso,
+                ap."NumeroPermiso" AS numero_permiso,
                 NULL::integer AS id_registro,
-                p.id_alerta,
-                p.id_nivel,
-                p.mensaje_especifico,
-                p.fecha_evaluacion,
+                ap.id_alerta,
+                ap.id_nivel,
+                ap.mensaje_especifico,
+                ap.fecha_evaluacion,
                 pb.permisionario,
                 pb.razon_social,
                 pb.entidad,
@@ -397,32 +790,32 @@ def dashboard_alerts(request):
                 NULL::integer AS anio,
                 NULL::text AS mes_ini,
                 NULL::text AS mes_fin
-            FROM electricidad.bitacora_alertas_permisos p
-            LEFT JOIN permisos_base pb
-                ON pb.numero_permiso = NULLIF(BTRIM(p."NumeroPermiso"), '')
-            WHERE p.id_nivel = %s
+            FROM electricidad.bitacora_alertas_permisos ap
+            JOIN permisos_base pb
+                ON pb.numero_permiso = NULLIF(BTRIM(ap."NumeroPermiso"), '')
+            WHERE {alert_where_p}
 
             UNION ALL
 
             SELECT
                 'Consumo' AS origen,
-                c."NumeroPermiso" AS numero_permiso,
-                a.id_registro,
-                a.id_alerta,
-                a.id_nivel,
-                a.mensaje_especifico,
-                a.fecha_evaluacion,
-                NULLIF(BTRIM(c."Permisionario"), '') AS permisionario,
-                NULLIF(BTRIM(c."Razon_Social_Autorizada"), '') AS razon_social,
+                fc."NumeroPermiso" AS numero_permiso,
+                ac.id_registro,
+                ac.id_alerta,
+                ac.id_nivel,
+                ac.mensaje_especifico,
+                ac.fecha_evaluacion,
+                NULLIF(BTRIM(fc."Permisionario"), '') AS permisionario,
+                NULLIF(BTRIM(fc."Razon_Social_Autorizada"), '') AS razon_social,
                 NULL::text AS entidad,
                 NULL::text AS municipio,
-                c."Anio" AS anio,
-                c."MesIni" AS mes_ini,
-                c."MesFin" AS mes_fin
-            FROM electricidad.bitacora_alertas_consumos a
-            LEFT JOIN electricidad.dashboard_consumos c
-                ON c.id_registro = a.id_registro
-            WHERE a.id_nivel = %s
+                fc."Anio" AS anio,
+                fc."MesIni" AS mes_ini,
+                fc."MesFin" AS mes_fin
+            FROM electricidad.bitacora_alertas_consumos ac
+            JOIN filtered_consumos fc
+                ON fc.id_registro = ac.id_registro
+            WHERE {alert_where_c}
         )
         SELECT
             au.origen,
@@ -451,8 +844,13 @@ def dashboard_alerts(request):
         LIMIT %s;
     """
 
-    # El mismo nivel se usa para permisos y consumos dentro del UNION.
-    params = [level, level, limit]
+    params = (
+        permisos_params
+        + consumos_params
+        + alert_params_p
+        + alert_params_c
+        + [limit]
+    )
 
     with connection.cursor() as cursor:
         cursor.execute(sql, params)
@@ -464,6 +862,7 @@ def dashboard_alerts(request):
             "source": source,
             "level": level,
             "limit": limit,
+            "global_filters": filters,
         },
         "alerts": [
             {
@@ -489,7 +888,6 @@ def dashboard_alerts(request):
     }
 
     return JsonResponse(data)
-
 
 @csrf_exempt
 def dashboard_options(request):

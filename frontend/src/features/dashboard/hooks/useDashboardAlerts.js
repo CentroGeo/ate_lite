@@ -1,7 +1,13 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { apiFetch } from '../../../utils/apiClient';
+import { appendDashboardFilters } from '../utils/dashboardFilters';
 
-export default function useDashboardAlerts({ source = 'all', level = 3, limit = 10 }) {
+export default function useDashboardAlerts({
+  source = 'all',
+  level = 3,
+  limit = 10,
+  filters = {},
+}) {
   const [data, setData] = useState({
     filters: {
       source,
@@ -14,6 +20,11 @@ export default function useDashboardAlerts({ source = 'all', level = 3, limit = 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
+  const filterKey = useMemo(
+    () => JSON.stringify({ source, level, limit, filters }),
+    [source, level, limit, filters]
+  );
+
   useEffect(() => {
     let isMounted = true;
 
@@ -22,11 +33,11 @@ export default function useDashboardAlerts({ source = 'all', level = 3, limit = 
         setLoading(true);
         setError('');
 
-        const params = new URLSearchParams({
-          source,
-          level: String(level),
-          limit: String(limit),
-        });
+        const params = appendDashboardFilters(new URLSearchParams(), filters);
+
+        params.set('source', source);
+        params.set('level', String(level));
+        params.set('limit', String(limit));
 
         const response = await apiFetch(`/api/dashboard/alerts/?${params.toString()}`);
 
@@ -49,7 +60,7 @@ export default function useDashboardAlerts({ source = 'all', level = 3, limit = 
     return () => {
       isMounted = false;
     };
-  }, [source, level, limit]);
+  }, [filterKey]);
 
   return {
     data,
