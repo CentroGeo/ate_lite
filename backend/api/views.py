@@ -324,3 +324,169 @@ def dashboard_summary(request):
 
     return JsonResponse(data)
 
+
+@csrf_exempt
+def dashboard_alerts(request):
+    """
+    Devuelve detalle de alertas recientes.
+
+    Query params opcionales:
+    - source: all | permiso | consumo
+    - level: 1 | 2 | 3
+    - limit: cantidad de registros, máximo 100
+
+    Ejemplos:
+    /api/dashboard/alerts/
+    /api/dashboard/alerts/?level=3
+    /api/dashboard/alerts/?source=permiso&level=2
+    """
+    source = request.GET.get("source", "all").lower()
+    level = request.GET.get("level", "3")
+    limit = request.GET.get("limit", "25")
+
+    if source not in {"all", "permiso", "consumo"}:
+        source = "all"
+
+    try:
+        level = int(level)
+    except ValueError:
+        level = 3
+
+    if level not in {1, 2, 3}:
+        level = 3
+
+    try:
+        limit = int(limit)
+    except ValueError:
+        limit = 25
+
+    limit = max(1, min(limit, 100))
+
+    source_where = ""
+    params = [level, limit]
+
+    if source == "permiso":
+        source_where = "WHERE origen = 'Permiso'"
+    elif source == "consumo":
+        source_where = "WHERE origen = 'Consumo'"
+
+    sql = f"""
+        WITH permisos_base AS (
+            SELECT
+                NULLIF(BTRIM("NumeroPermiso"), '') AS numero_permiso,
+                MAX(NULLIF(BTRIM("Permisionario"), '')) AS permisionario,
+                MAX(NULLIF(BTRIM("Razon_Social_Autorizada"), '')) AS razon_social,
+                MAX(NULLIF(BTRIM("CentralEntidadFederativa"), '')) AS entidad,
+                MAX(NULLIF(BTRIM("CentralMunicipio"), '')) AS municipio
+            FROM electricidad.dashboard_permisos
+            GROUP BY NULLIF(BTRIM("NumeroPermiso"), '')
+        ),
+        alertas_unidas AS (
+            SELECT
+                'Permiso' AS origen,
+                p."NumeroPermiso" AS numero_permiso,
+                NULL::integer AS id_registro,
+                p.id_alerta,
+                p.id_nivel,
+                p.mensaje_especifico,
+                p.fecha_evaluacion,
+                pb.permisionario,
+                pb.razon_social,
+                pb.entidad,
+                pb.municipio,
+                NULL::integer AS anio,
+                NULL::text AS mes_ini,
+                NULL::text AS mes_fin
+            FROM electricidad.bitacora_alertas_permisos p
+            LEFT JOIN permisos_base pb
+                ON pb.numero_permiso = NULLIF(BTRIM(p."NumeroPermiso"), '')
+            WHERE p.id_nivel = %s
+
+            UNION ALL
+
+            SELECT
+                'Consumo' AS origen,
+                c."NumeroPermiso" AS numero_permiso,
+                a.id_registro,
+                a.id_alerta,
+                a.id_nivel,
+                a.mensaje_especifico,
+                a.fecha_evaluacion,
+                NULLIF(BTRIM(c."Permisionario"), '') AS permisionario,
+                NULLIF(BTRIM(c."Razon_Social_Autorizada"), '') AS razon_social,
+                NULL::text AS entidad,
+                NULL::text AS municipio,
+                c."Anio" AS anio,
+                c."MesIni" AS mes_ini,
+                c."MesFin" AS mes_fin
+            FROM electricidad.bitacora_alertas_consumos a
+            LEFT JOIN electricidad.dashboard_consumos c
+                ON c.id_registro = a.id_registro
+            WHERE a.id_nivel = %s
+        )
+        SELECT
+            au.origen,
+            au.numero_permiso,
+            au.id_registro,
+            au.id_alerta,
+            ca.nombre_alerta,
+            ca.nivel_categoria,
+            au.id_nivel,
+            cn.descripcion_nivel,
+            au.mensaje_especifico,
+            au.fecha_evaluacion,
+            COALESCE(au.permisionario, au.razon_social, '') AS permisionario,
+            au.entidad,
+            au.municipio,
+            au.anio,
+            au.mes_ini,
+            au.mes_fin
+        FROM alertas_unidas au
+        JOIN electricidad.cat_alertas ca
+            ON ca.id_alerta = au.id_alerta
+        LEFT JOIN electricidad.cat_niveles_alerta cn
+            ON cn.id_nivel = au.id_nivel
+        {source_where}
+        ORDER BY au.fecha_evaluacion DESC NULLS LAST, au.id_alerta
+        LIMIT %s;
+    """
+
+    # El mismo nivel se usa para permisos y consumos dentro del UNION.
+    params = [level, level, limit]
+
+    with connection.cursor() as cursor:
+        cursor.execute(sql, params)
+        rows = dictfetchall(cursor)
+
+    data = {
+        "status": "success",
+        "filters": {
+            "source": source,
+            "level": level,
+            "limit": limit,
+        },
+        "alerts": [
+            {
+                "origen": row["origen"],
+                "numero_permiso": row["numero_permiso"],
+                "id_registro": row["id_registro"],
+                "id_alerta": to_int(row["id_alerta"]),
+                "nombre_alerta": row["nombre_alerta"],
+                "nivel_categoria": row["nivel_categoria"],
+                "id_nivel": to_int(row["id_nivel"]),
+                "descripcion_nivel": row["descripcion_nivel"],
+                "mensaje_especifico": row["mensaje_especifico"],
+                "fecha_evaluacion": row["fecha_evaluacion"].isoformat() if row["fecha_evaluacion"] else None,
+                "permisionario": row["permisionario"],
+                "entidad": row["entidad"],
+                "municipio": row["municipio"],
+                "anio": row["anio"],
+                "mes_ini": row["mes_ini"],
+                "mes_fin": row["mes_fin"],
+            }
+            for row in rows
+        ],
+    }
+
+    return JsonResponse(data)
+
