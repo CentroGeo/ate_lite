@@ -1,4 +1,5 @@
-import React from 'react';
+import React, { useState } from 'react';
+import useDashboardAlerts from './hooks/useDashboardAlerts';
 import useDashboardSummary from './hooks/useDashboardSummary';
 
 function formatNumber(value, options = {}) {
@@ -9,13 +10,42 @@ function formatNumber(value, options = {}) {
   return new Intl.NumberFormat('es-MX', options).format(value);
 }
 
+function formatDate(value) {
+  if (!value) {
+    return '-';
+  }
+
+  return new Intl.DateTimeFormat('es-MX', {
+    dateStyle: 'medium',
+    timeStyle: 'short',
+  }).format(new Date(value));
+}
+
 export default function DashboardPage() {
-  const { data, loading, error } = useDashboardSummary();
+  const [alertSource, setAlertSource] = useState('all');
+  const [alertLevel, setAlertLevel] = useState(3);
+
+  const {
+    data,
+    loading,
+    error,
+  } = useDashboardSummary();
+
+  const {
+    data: alertsDetail,
+    loading: alertsLoading,
+    error: alertsError,
+  } = useDashboardAlerts({
+    source: alertSource,
+    level: alertLevel,
+    limit: 10,
+  });
 
   const summary = data?.summary || {};
   const alerts = data?.alerts || {};
   const alertsByLevel = data?.alerts_by_level || [];
   const topAlerts = data?.top_alerts || [];
+  const detailRows = alertsDetail?.alerts || [];
 
   const summaryCards = [
     {
@@ -172,6 +202,92 @@ export default function DashboardPage() {
                 </tbody>
               </table>
             </div>
+          </section>
+
+          <h2 className="section-title">Detalle de alertas</h2>
+
+          <section className="db-card">
+            <div
+              style={{
+                display: 'flex',
+                gap: '0.75rem',
+                flexWrap: 'wrap',
+                marginBottom: '1rem',
+              }}
+            >
+              <label>
+                Origen:{' '}
+                <select
+                  value={alertSource}
+                  onChange={(event) => setAlertSource(event.target.value)}
+                >
+                  <option value="all">Todas</option>
+                  <option value="permiso">Permisos</option>
+                  <option value="consumo">Consumos</option>
+                </select>
+              </label>
+
+              <label>
+                Nivel:{' '}
+                <select
+                  value={alertLevel}
+                  onChange={(event) => setAlertLevel(Number(event.target.value))}
+                >
+                  <option value={3}>Crítico</option>
+                  <option value={2}>Advertencia</option>
+                  <option value={1}>Inactivo</option>
+                </select>
+              </label>
+            </div>
+
+            {alertsLoading && (
+              <p>Cargando detalle de alertas...</p>
+            )}
+
+            {alertsError && (
+              <p style={{ color: '#9D2148' }}>{alertsError}</p>
+            )}
+
+            {!alertsLoading && !alertsError && (
+              <div style={{ overflowX: 'auto' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                  <thead>
+                    <tr>
+                      <th style={{ textAlign: 'left', padding: '0.5rem' }}>Origen</th>
+                      <th style={{ textAlign: 'left', padding: '0.5rem' }}>Permiso</th>
+                      <th style={{ textAlign: 'left', padding: '0.5rem' }}>Alerta</th>
+                      <th style={{ textAlign: 'left', padding: '0.5rem' }}>Mensaje</th>
+                      <th style={{ textAlign: 'left', padding: '0.5rem' }}>Periodo</th>
+                      <th style={{ textAlign: 'left', padding: '0.5rem' }}>Fecha</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {detailRows.map((row) => (
+                      <tr key={`${row.origen}-${row.id_registro || row.numero_permiso}-${row.id_alerta}-${row.fecha_evaluacion}`}>
+                        <td style={{ padding: '0.5rem' }}>{row.origen}</td>
+                        <td style={{ padding: '0.5rem' }}>{row.numero_permiso || '-'}</td>
+                        <td style={{ padding: '0.5rem' }}>{row.nombre_alerta}</td>
+                        <td style={{ padding: '0.5rem' }}>{row.mensaje_especifico}</td>
+                        <td style={{ padding: '0.5rem' }}>
+                          {row.anio
+                            ? `${row.anio} · ${row.mes_ini || '-'} - ${row.mes_fin || '-'}`
+                            : '-'}
+                        </td>
+                        <td style={{ padding: '0.5rem' }}>
+                          {formatDate(row.fecha_evaluacion)}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+
+                {detailRows.length === 0 && (
+                  <p style={{ marginTop: '1rem' }}>
+                    No hay alertas con estos filtros.
+                  </p>
+                )}
+              </div>
+            )}
           </section>
         </>
       )}
