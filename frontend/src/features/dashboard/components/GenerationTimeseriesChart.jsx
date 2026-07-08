@@ -24,7 +24,12 @@ const periodNames = {
   year: 'Anual',
 };
 
-export default function GenerationTimeseriesChart({ data, loading, error }) {
+export default function GenerationTimeseriesChart({
+  data,
+  loading,
+  error,
+  contextLabel = 'Vista nacional',
+}) {
   const series = data?.series || [];
 
   return (
@@ -33,6 +38,7 @@ export default function GenerationTimeseriesChart({ data, loading, error }) {
         <div>
           <span className="db-card-title">Serie temporal</span>
           <h2>Generación y consumo auxiliar</h2>
+          <p className="chart-context">{contextLabel}</p>
         </div>
 
         <span className="chart-period-pill">

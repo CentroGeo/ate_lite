@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import useDashboardOptions from '../hooks/useDashboardOptions';
 
 const DEFAULT_FILTERS = {
@@ -64,6 +64,15 @@ export default function DashboardFilters({ filters, onApply, onClear }) {
   const [draft, setDraft] = useState(() => normalizeFilters(filters));
   const [isOpen, setIsOpen] = useState(false);
 
+  const externalFiltersKey = useMemo(
+    () => JSON.stringify(normalizeFilters(filters)),
+    [filters]
+  );
+
+  useEffect(() => {
+    setDraft(normalizeFilters(filters));
+  }, [externalFiltersKey]);
+
   const chipLookups = useMemo(() => {
     const estadoNames = new Map(
       options.estados.map((item) => [String(item.id), item.nombre])
@@ -122,6 +131,19 @@ export default function DashboardFilters({ filters, onApply, onClear }) {
     return errors;
   }, [draft.startYear, draft.endYear]);
 
+  function applyDraftPatch(patch) {
+    setDraft((current) => {
+      const next = normalizeFilters({
+        ...current,
+        ...patch,
+      });
+
+      onApply(next);
+
+      return next;
+    });
+  }
+
   const activeChips = useMemo(() => {
     const chips = [];
 
@@ -141,7 +163,7 @@ export default function DashboardFilters({ filters, onApply, onClear }) {
       chips.push({
         key: 'tipoPeriodo',
         label: draft.tipoPeriodo,
-        remove: () => setDraft((current) => ({ ...current, tipoPeriodo: '' })),
+        remove: () => applyDraftPatch({ tipoPeriodo: '' }),
       });
     }
 
@@ -149,7 +171,7 @@ export default function DashboardFilters({ filters, onApply, onClear }) {
       chips.push({
         key: 'outputPeriod',
         label: `Agrupar: ${OUTPUT_PERIOD_LABELS[draft.outputPeriod] || draft.outputPeriod}`,
-        remove: () => setDraft((current) => ({ ...current, outputPeriod: 'auto' })),
+        remove: () => applyDraftPatch({ outputPeriod: 'auto' }),
       });
     }
 
@@ -158,10 +180,9 @@ export default function DashboardFilters({ filters, onApply, onClear }) {
         chips.push({
           key: `${key}-${value}`,
           label: `${label}: ${getChipValueLabel(key, value)}`,
-          remove: () => setDraft((current) => ({
-            ...current,
-            [key]: current[key].filter((item) => item !== value),
-          })),
+          remove: () => applyDraftPatch({
+            [key]: draft[key].filter((item) => item !== value),
+          }),
         });
       });
     };

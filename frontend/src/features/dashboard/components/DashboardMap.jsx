@@ -28,6 +28,7 @@ const CLASS_COLORS = {
 const GEO_SOURCE_ID = 'dashboard-geo-source';
 const GEO_FILL_LAYER_ID = 'dashboard-geo-fill';
 const GEO_BORDER_LAYER_ID = 'dashboard-geo-border';
+const GEO_SELECTED_LAYER_ID = 'dashboard-geo-selected';
 
 function formatNumber(value) {
   return new Intl.NumberFormat('es-MX', {
@@ -273,6 +274,63 @@ function getBoundsForFeatures(features) {
   return bounds;
 }
 
+function getNationalFitOptions() {
+  return {
+    padding: 32,
+    duration: 650,
+    maxZoom: 5.4,
+  };
+}
+
+function getDetailFitOptions(geoLevel, overrides = {}) {
+  return {
+    padding: {
+      top: 150,
+      right: 70,
+      bottom: 85,
+      left: 70,
+    },
+    duration: 600,
+    maxZoom: geoLevel === 'estado' ? 7.4 : 11.2,
+    ...overrides,
+  };
+}
+
+function escapeHtml(value) {
+  return String(value || '')
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#39;');
+}
+
+function buildSelectionLabel({
+  geoLevel,
+  featureName,
+  stateCount,
+  municipalityCount,
+}) {
+  if (municipalityCount > 1) {
+    return `${municipalityCount} municipios seleccionados`;
+  }
+
+  if (stateCount > 1) {
+    return `${stateCount} estados seleccionados`;
+  }
+
+  if (featureName && geoLevel === 'municipio') {
+    return `Municipio: ${featureName}`;
+  }
+
+  if (featureName && geoLevel === 'estado') {
+    return `Estado: ${featureName}`;
+  }
+
+  return 'Vista nacional';
+}
+
+
 function getMapStyle() {
   return {
     version: 8,
@@ -301,29 +359,100 @@ function getMapStyle() {
 export default function DashboardMap({
   filters,
   onApplyFilters,
+  onSelectionLabelChange = () => {},
 }) {
   const mapContainerRef = useRef(null);
   const mapRef = useRef(null);
+  const popupRef = useRef(null);
+  const lastAutoFitKeyRef = useRef('');
+  const hadActiveGeoSelectionRef = useRef(false);
+  const nameLookupRef = useRef({
+    estado: new Map(),
+    municipio: new Map(),
+  });
 
   const [mapReady, setMapReady] = useState(false);
   const [geoLevel, setGeoLevel] = useState('estado');
   const [metric, setMetric] = useState('permisos');
   const [geoJson, setGeoJson] = useState(null);
-  const [hovered, setHovered] = useState(null);
+  const [mapTitleContext, setMapTitleContext] = useState('Vista nacional por estados');
 
-  const selectedStateId = filters?.estados?.length === 1
-    ? String(filters.estados[0])
+  const selectedStateIds = Array.isArray(filters?.estados)
+    ? filters.estados.map(String)
+    : [];
+
+  const selectedStateId = selectedStateIds.length === 1
+    ? selectedStateIds[0]
     : '';
+
+  const selectedMunicipalityIds = Array.isArray(filters?.municipios)
+    ? filters.municipios.map(String)
+    : [];
+
+  const isNationalView = selectedStateIds.length === 0
+    && selectedMunicipalityIds.length === 0;
+
+  const geoFilters = useMemo(() => {
+    /*
+     * El mapa debe conservar contexto visual aunque el dashboard esté filtrado.
+     *
+     * - Vista estatal: no filtramos por estados ni municipios, para que todos
+     *   los estados conserven su color.
+     * - Vista municipal de un estado: mantenemos el estado, pero quitamos municipio,
+     *   para que todos los municipios del estado sigan visibles.
+     * - Vista municipal nacional: no filtramos por estados ni municipios.
+     */
+    const baseFilters = {
+      ...filters,
+      municipios: [],
+    };
+
+    if (geoLevel === 'estado' || selectedStateIds.length !== 1) {
+      return {
+        ...baseFilters,
+        estados: [],
+      };
+    }
+
+    return baseFilters;
+  }, [filters, geoLevel, selectedStateIds]);
 
   const {
     data,
     loading,
     error,
   } = useDashboardGeo({
-    filters,
+    filters: geoFilters,
     geoLevel,
     metric,
   });
+
+  function updateSelectionContext(label) {
+    setMapTitleContext(label);
+    onSelectionLabelChange(label);
+  }
+
+  function cacheFeatureNames(features, level) {
+    const lookup = nameLookupRef.current[level];
+
+    features.forEach((feature) => {
+      const id = getFeatureId(feature, level);
+      const name = getFeatureName(feature, level);
+
+      if (id && name && !name.startsWith('Sin ')) {
+        lookup.set(String(id), name);
+      }
+    });
+  }
+
+  function getCachedName(level, id) {
+    return nameLookupRef.current[level]?.get(String(id)) || '';
+  }
+
+  function getStateNameForFeature(feature) {
+    const parentId = getFeatureParentId(feature);
+    return parentId ? getCachedName('estado', parentId) : '';
+  }
 
   useEffect(() => {
     if (!mapContainerRef.current || mapRef.current) {
@@ -358,23 +487,57 @@ export default function DashboardMap({
       setMapReady(true);
     });
 
+    popupRef.current = new maplibregl.Popup({
+      closeButton: false,
+      closeOnClick: false,
+      closeOnMove: true,
+      offset: 12,
+      className: 'dashboard-map-tooltip',
+    });
+
+    map.on('movestart', () => {
+      popupRef.current?.remove();
+    });
+
+    map.on('zoomstart', () => {
+      popupRef.current?.remove();
+    });
+
+    map.on('dragstart', () => {
+      popupRef.current?.remove();
+    });
+
     mapRef.current = map;
 
     return () => {
+      popupRef.current?.remove();
+      popupRef.current = null;
       map.remove();
       mapRef.current = null;
     };
   }, []);
 
   useEffect(() => {
-    if (!selectedStateId && geoLevel !== 'estado') {
+    if (isNationalView) {
+      updateSelectionContext(
+        geoLevel === 'municipio'
+          ? 'Vista nacional por municipios'
+          : 'Vista nacional por estados'
+      );
+    }
+  }, [isNationalView, geoLevel, onSelectionLabelChange]);
+
+  useEffect(() => {
+    const hasActiveGeoSelection = selectedStateIds.length > 0
+      || selectedMunicipalityIds.length > 0;
+
+    if (!hasActiveGeoSelection && hadActiveGeoSelectionRef.current) {
       setGeoLevel('estado');
+      lastAutoFitKeyRef.current = '';
     }
 
-    if (selectedStateId && geoLevel === 'estado') {
-      setGeoLevel('municipio');
-    }
-  }, [selectedStateId, geoLevel]);
+    hadActiveGeoSelectionRef.current = hasActiveGeoSelection;
+  }, [selectedStateIds, selectedMunicipalityIds]);
 
   useEffect(() => {
     let isMounted = true;
@@ -383,6 +546,7 @@ export default function DashboardMap({
       .then((response) => response.json())
       .then((json) => {
         if (isMounted) {
+          cacheFeatureNames(json.features || [], geoLevel);
           setGeoJson(json);
         }
       })
@@ -446,6 +610,9 @@ export default function DashboardMap({
             dashboardValue: value,
             dashboardValueLabel: formatNumber(value),
             dashboardClass: valueClass,
+            dashboardSelected: geoLevel === 'estado'
+              ? selectedStateIds.includes(id)
+              : selectedMunicipalityIds.includes(id),
           },
         };
       }),
@@ -456,6 +623,122 @@ export default function DashboardMap({
     valueById,
     data.quantiles,
     useQuintiles,
+    selectedStateIds,
+    selectedMunicipalityIds,
+    metric,
+  ]);
+
+  const selectedNames = useMemo(() => {
+    const namesById = new Map();
+
+    enrichedGeoJson?.features?.forEach((feature) => {
+      const id = String(feature.properties?.dashboardId || '');
+      const name = String(feature.properties?.dashboardName || '');
+
+      if (id && name) {
+        namesById.set(id, name);
+      }
+    });
+
+    const stateNames = selectedStateIds.map((id) => (
+      getCachedName('estado', id)
+      || namesById.get(id)
+      || id
+    ));
+
+    const municipalityNames = selectedMunicipalityIds.map((id) => (
+      getCachedName('municipio', id)
+      || namesById.get(id)
+      || id
+    ));
+
+    return {
+      stateNames,
+      municipalityNames,
+    };
+  }, [enrichedGeoJson, selectedStateIds, selectedMunicipalityIds]);
+
+  useEffect(() => {
+    if (selectedMunicipalityIds.length > 1) {
+      updateSelectionContext(`${selectedMunicipalityIds.length} municipios seleccionados`);
+      return;
+    }
+
+    if (selectedMunicipalityIds.length === 1) {
+      const municipalityName = selectedNames.municipalityNames[0] || selectedMunicipalityIds[0];
+      const stateName = selectedNames.stateNames[0];
+
+      updateSelectionContext(
+        stateName
+          ? `Estado: ${stateName} · Municipio: ${municipalityName}`
+          : `Municipio: ${municipalityName}`
+      );
+      return;
+    }
+
+    if (selectedStateIds.length > 1) {
+      updateSelectionContext(`${selectedStateIds.length} estados seleccionados`);
+      return;
+    }
+
+    if (selectedStateIds.length === 1) {
+      const stateName = selectedNames.stateNames[0] || selectedStateIds[0];
+      updateSelectionContext(`Estado: ${stateName}`);
+      return;
+    }
+
+    updateSelectionContext(
+      geoLevel === 'municipio'
+        ? 'Vista nacional por municipios'
+        : 'Vista nacional por estados'
+    );
+  }, [
+    selectedStateIds,
+    selectedMunicipalityIds,
+    selectedNames,
+    geoLevel,
+  ]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+
+    if (!mapReady || !map || !enrichedGeoJson?.features?.length) {
+      return;
+    }
+
+    let targetFeatures = [];
+
+    if (selectedMunicipalityIds.length > 0) {
+      const selectedSet = new Set(selectedMunicipalityIds.map(String));
+
+      targetFeatures = enrichedGeoJson.features.filter((feature) => (
+        selectedSet.has(String(feature.properties?.dashboardId || ''))
+      ));
+    } else if (selectedStateIds.length > 0 && geoLevel === 'estado') {
+      const selectedSet = new Set(selectedStateIds.map(String));
+
+      targetFeatures = enrichedGeoJson.features.filter((feature) => (
+        selectedSet.has(String(feature.properties?.dashboardId || ''))
+      ));
+    } else if (selectedStateIds.length === 1 && geoLevel === 'municipio') {
+      targetFeatures = enrichedGeoJson.features;
+    }
+
+    if (targetFeatures.length === 0) {
+      return;
+    }
+
+    const bounds = getBoundsForFeatures(targetFeatures);
+
+    if (bounds) {
+      map.fitBounds(bounds, getDetailFitOptions(geoLevel));
+    }
+  }, [
+    mapReady,
+    enrichedGeoJson,
+    geoLevel,
+    selectedStateIds,
+    selectedMunicipalityIds,
   ]);
 
   useEffect(() => {
@@ -509,20 +792,43 @@ export default function DashboardMap({
           'line-opacity': 0.75,
         },
       });
+
+      map.addLayer({
+        id: GEO_SELECTED_LAYER_ID,
+        type: 'line',
+        source: GEO_SOURCE_ID,
+        filter: ['==', ['get', 'dashboardSelected'], true],
+        paint: {
+          'line-color': '#7a244f',
+          'line-width': [
+            'interpolate',
+            ['linear'],
+            ['zoom'],
+            3,
+            2.2,
+            9,
+            4,
+          ],
+          'line-opacity': 0.95,
+        },
+      });
     } else {
       map.getSource(GEO_SOURCE_ID).setData(enrichedGeoJson);
     }
 
+    const autoFitKey = `${geoLevel}|${selectedStateId || 'nacional'}`;
     const bounds = getBoundsForFeatures(enrichedGeoJson.features);
 
-    if (bounds) {
-      map.fitBounds(bounds, {
-        padding: geoLevel === 'estado' ? 32 : 55,
-        duration: 900,
-        maxZoom: geoLevel === 'estado' ? 5.4 : 9.5,
-      });
+    if (bounds && lastAutoFitKeyRef.current !== autoFitKey) {
+      const fitOptions = isNationalView
+        ? getNationalFitOptions()
+        : getDetailFitOptions(geoLevel);
+
+      map.fitBounds(bounds, fitOptions);
+      lastAutoFitKeyRef.current = autoFitKey;
     }
-  }, [mapReady, enrichedGeoJson, geoLevel]);
+  }, [mapReady, enrichedGeoJson, geoLevel, selectedStateId, isNationalView]);
+
 
   useEffect(() => {
     const map = mapRef.current;
@@ -538,17 +844,37 @@ export default function DashboardMap({
         return;
       }
 
+      const featureValue = Number(feature.properties.dashboardValue || 0);
+      const featureName = String(feature.properties.dashboardName || '');
+
+      if (featureValue <= 0) {
+        map.getCanvas().style.cursor = 'not-allowed';
+        popupRef.current?.remove();
+        return;
+      }
+
+      const parentStateName = geoLevel === 'municipio'
+        ? getStateNameForFeature(feature)
+        : '';
+
       map.getCanvas().style.cursor = 'pointer';
 
-      setHovered({
-        name: feature.properties.dashboardName,
-        value: Number(feature.properties.dashboardValue || 0),
-      });
+      popupRef.current
+        ?.setLngLat(event.lngLat)
+        .setHTML(`
+          <div class="dashboard-map-tooltip-card">
+            <span class="tooltip-kicker">${escapeHtml(METRIC_LABELS[metric] || metric)}</span>
+            <strong>${escapeHtml(featureName)}</strong>
+            ${parentStateName ? `<small class="tooltip-subtitle">${escapeHtml(parentStateName)}</small>` : ''}
+            <span class="tooltip-value">${escapeHtml(formatNumber(featureValue))}</span>
+          </div>
+        `)
+        .addTo(map);
     }
 
     function handleMouseLeave() {
       map.getCanvas().style.cursor = '';
-      setHovered(null);
+      popupRef.current?.remove();
     }
 
     function handleClick(event) {
@@ -558,6 +884,8 @@ export default function DashboardMap({
         return;
       }
 
+      popupRef.current?.remove();
+
       const id = String(feature.properties.dashboardId || '');
       const parentId = String(feature.properties.dashboardParentId || '');
 
@@ -565,32 +893,112 @@ export default function DashboardMap({
         return;
       }
 
+      event.originalEvent?.preventDefault?.();
+
+      const isMultiSelect = Boolean(
+        event.originalEvent?.ctrlKey
+        || event.originalEvent?.metaKey
+        || event.originalEvent?.shiftKey
+      );
+
+      const featureName = String(feature.properties.dashboardName || '');
+      const featureValue = Number(feature.properties.dashboardValue || 0);
+
+      if (featureValue <= 0) {
+        return;
+      }
+
       const bounds = getBoundsForFeatures([feature]);
 
-      if (bounds) {
-        map.fitBounds(bounds, {
-          padding: 70,
-          duration: 850,
-          maxZoom: geoLevel === 'estado' ? 7.2 : 10.5,
-        });
+      if (bounds && !isMultiSelect) {
+        map.fitBounds(bounds, getDetailFitOptions(geoLevel));
       }
 
       if (geoLevel === 'estado') {
-        onApplyFilters((current) => ({
-          ...current,
+        if (isMultiSelect) {
+          const exists = selectedStateIds.includes(id);
+          const nextStates = exists
+            ? selectedStateIds.filter((item) => item !== id)
+            : [...selectedStateIds, id];
+
+          onApplyFilters({
+            ...filters,
+            estados: nextStates,
+            municipios: [],
+          });
+
+          updateSelectionContext(
+            nextStates.length === 0
+              ? 'Vista nacional por estados'
+              : buildSelectionLabel({
+                  geoLevel,
+                  featureName: nextStates.length === 1 ? featureName : '',
+                  stateCount: nextStates.length,
+                  municipalityCount: 0,
+                })
+          );
+
+          return;
+        }
+
+        onApplyFilters({
+          ...filters,
           estados: [id],
           municipios: [],
+        });
+
+        updateSelectionContext(buildSelectionLabel({
+          geoLevel,
+          featureName,
+          stateCount: 1,
+          municipalityCount: 0,
         }));
 
         setGeoLevel('municipio');
         return;
       }
 
-      onApplyFilters((current) => ({
-        ...current,
-        estados: current.estados?.length ? current.estados : [parentId],
+      if (isMultiSelect) {
+        const exists = selectedMunicipalityIds.includes(id);
+        const nextMunicipalities = exists
+          ? selectedMunicipalityIds.filter((item) => item !== id)
+          : [...selectedMunicipalityIds, id];
+
+        onApplyFilters({
+          ...filters,
+          estados: selectedStateId ? [selectedStateId] : selectedStateIds,
+          municipios: nextMunicipalities,
+        });
+
+        updateSelectionContext(buildSelectionLabel({
+          geoLevel,
+          stateCount: selectedStateIds.length,
+          municipalityCount: nextMunicipalities.length,
+        }));
+
+        return;
+      }
+
+      onApplyFilters({
+        ...filters,
+        estados: parentId ? [parentId] : selectedStateIds,
         municipios: [id],
-      }));
+      });
+
+      const stateNameForLabel = parentId
+        ? getCachedName('estado', parentId)
+        : selectedNames.stateNames[0];
+
+      updateSelectionContext(
+        stateNameForLabel
+          ? `Estado: ${stateNameForLabel} · Municipio: ${featureName}`
+          : buildSelectionLabel({
+              geoLevel,
+              featureName,
+              stateCount: parentId ? 1 : selectedStateIds.length,
+              municipalityCount: 1,
+            })
+      );
     }
 
     map.on('mousemove', GEO_FILL_LAYER_ID, handleMouseMove);
@@ -602,16 +1010,27 @@ export default function DashboardMap({
       map.off('mouseleave', GEO_FILL_LAYER_ID, handleMouseLeave);
       map.off('click', GEO_FILL_LAYER_ID, handleClick);
     };
-  }, [mapReady, geoLevel, onApplyFilters]);
+  }, [
+    mapReady,
+    geoLevel,
+    onApplyFilters,
+    onSelectionLabelChange,
+    filters,
+    selectedStateId,
+    selectedStateIds,
+    selectedMunicipalityIds,
+  ]);
 
   function resetToNational() {
-    onApplyFilters((current) => ({
-      ...current,
+    onApplyFilters({
+      ...filters,
       estados: [],
       municipios: [],
-    }));
+    });
 
     setGeoLevel('estado');
+    lastAutoFitKeyRef.current = '';
+    updateSelectionContext('Vista nacional por estados');
   }
 
   const rangeLegend = buildRangeLegend(data.quantiles || []);
@@ -632,10 +1051,30 @@ export default function DashboardMap({
         </div>
 
         <div className="map-actions">
-          {geoLevel === 'municipio' && (
-            <button type="button" onClick={resetToNational}>
-              ← Nacional
-            </button>
+          {isNationalView && (
+            <div className="map-view-switcher">
+              <button
+                type="button"
+                className={geoLevel === 'estado' ? 'is-active' : ''}
+                onClick={() => {
+                  setGeoLevel('estado');
+                  lastAutoFitKeyRef.current = '';
+                }}
+              >
+                Estados
+              </button>
+
+              <button
+                type="button"
+                className={geoLevel === 'municipio' ? 'is-active' : ''}
+                onClick={() => {
+                  setGeoLevel('municipio');
+                  lastAutoFitKeyRef.current = '';
+                }}
+              >
+                Municipios
+              </button>
+            </div>
           )}
 
           <select
@@ -669,9 +1108,9 @@ export default function DashboardMap({
         <div className="map-title-box">
           <strong>Distribución de Permisos</strong>
           <span>Generación de Energía Eléctrica</span>
-          {selectedStateId && geoLevel === 'municipio' && (
-            <small>Nivel municipal</small>
-          )}
+          <small title={mapTitleContext}>
+            {mapTitleContext}
+          </small>
         </div>
 
         <div className="map-legend-box">
@@ -700,19 +1139,16 @@ export default function DashboardMap({
           </div>
         </div>
 
-        <div className="map-hover-card">
-          {hovered ? (
-            <>
-              <strong>{hovered.name}</strong>
-              <span>{formatNumber(hovered.value)}</span>
-            </>
-          ) : (
-            <>
-              <strong>Explora el mapa</strong>
-              <span>Pasa el mouse sobre una región</span>
-            </>
-          )}
-        </div>
+        {!isNationalView && (
+          <button
+            type="button"
+            className="map-home-button"
+            onClick={resetToNational}
+          >
+            🏠 Nacional
+          </button>
+        )}
+
       </div>
     </section>
   );

@@ -1771,3 +1771,46 @@ button {
     transform: translateX(100%);
   }
 }
+
+/* --- Compactar separación interna de KPIs --- */
+
+.kpi-card {
+  min-height: 80px;
+  padding: 0.8rem 1rem 0.75rem;
+}
+
+.kpi-card-topline {
+  min-height: auto;
+}
+
+.kpi-card .db-card-title {
+  line-height: 1;
+}
+
+.kpi-card .db-card-value {
+  line-height: 0.92;
+  margin-top: 0.22rem;
+}
+
+.kpi-card .db-card-desc {
+  line-height: 1.05;
+  margin-top: 0.18rem;
+}
+
+.kpi-card-accent {
+  bottom: 0.58rem;
+}
+
+/* --- Hacer que la barra de acento quede pegada al subtítulo del KPI --- */
+
+.kpi-card-accent {
+  bottom: auto;
+  left: auto;
+  margin-top: 0.34rem;
+  position: relative;
+  z-index: 1;
+}
+
+.kpi-card .db-card-desc {
+  margin-top: 0.16rem;
+}
