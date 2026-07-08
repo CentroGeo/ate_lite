@@ -1572,3 +1572,92 @@ def dashboard_geo(request):
 
     return JsonResponse(data)
 
+@csrf_exempt
+@dashboard_api_errors
+def dashboard_points(request):
+    """
+    Devuelve permisos georreferenciados para pintarlos como pines en el mapa.
+
+    Usa los mismos filtros globales del dashboard:
+    estados, municipios, modalidad, tecnologia, permisos, permisionarios, etc.
+    """
+    filters = parse_dashboard_filters(request)
+    filter_errors = validate_dashboard_filters(filters)
+
+    if filter_errors:
+        return JsonResponse(
+            {
+                "status": "error",
+                "errors": filter_errors,
+            },
+            status=400,
+        )
+
+    limit = get_query_int(request, "limit")
+
+    if limit is None or limit <= 0:
+        limit = 2000
+
+    limit = min(limit, 5000)
+
+    permisos_where, permisos_params = build_permisos_where(filters, "p")
+
+    sql = f"""
+        SELECT
+            NULLIF(BTRIM(p."NumeroPermiso"), '') AS numero_permiso,
+            NULLIF(BTRIM(p."Permisionario"), '') AS permisionario,
+            NULLIF(BTRIM(p."Modalidad"), '') AS modalidad,
+            NULLIF(BTRIM(p."Tecnologia"), '') AS tecnologia,
+            COALESCE(p."TotalCapacidad", 0) AS capacidad,
+            COALESCE(
+                NULLIF(BTRIM(p."inegi_entidad"), ''),
+                NULLIF(BTRIM(p."CentralEntidadFederativa"), ''),
+                'Sin entidad'
+            ) AS entidad,
+            COALESCE(
+                NULLIF(BTRIM(p."inegi_municipio"), ''),
+                NULLIF(BTRIM(p."CentralMunicipio"), ''),
+                'Sin municipio'
+            ) AS municipio,
+            ST_X(p."geom") AS lng,
+            ST_Y(p."geom") AS lat
+        FROM electricidad.dashboard_permisos p
+        WHERE {permisos_where}
+          AND p."geom" IS NOT NULL
+          AND GeometryType(p."geom") = 'POINT'
+          AND ST_SRID(p."geom") = 4326
+          AND ST_X(p."geom") BETWEEN -180 AND 180
+          AND ST_Y(p."geom") BETWEEN -90 AND 90
+        ORDER BY
+            COALESCE(p."TotalCapacidad", 0) DESC,
+            NULLIF(BTRIM(p."NumeroPermiso"), '')
+        LIMIT %s;
+    """
+
+    with connection.cursor() as cursor:
+        set_dashboard_statement_timeout(cursor)
+        cursor.execute(sql, permisos_params + [limit])
+        rows = dictfetchall(cursor)
+
+    data = {
+        "status": "success",
+        "count": len(rows),
+        "limit": limit,
+        "points": [
+            {
+                "numero_permiso": row["numero_permiso"],
+                "permisionario": row["permisionario"],
+                "modalidad": row["modalidad"],
+                "tecnologia": row["tecnologia"],
+                "capacidad": to_float(row["capacidad"]),
+                "entidad": row["entidad"],
+                "municipio": row["municipio"],
+                "lng": to_float(row["lng"]),
+                "lat": to_float(row["lat"]),
+            }
+            for row in rows
+        ],
+    }
+
+    return JsonResponse(data)
+
