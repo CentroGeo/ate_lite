@@ -653,17 +653,39 @@ function DashboardMap({
   }, [isNationalView, geoLevel, onSelectionLabelChange]);
 
   useEffect(() => {
+    if (selectedGerenciaIds.length > 0 && geoLevel !== 'gerencia') {
+      setGeoLevel('gerencia');
+      lastAutoFitKeyRef.current = '';
+    }
+
+    if (selectedGerenciaIds.length > 0) {
+      setSelectedPoint(null);
+      pointBaseFiltersRef.current = null;
+      setPinModeEnabled(
+        selectedGerenciaIds.length === 1 && selectedMunicipalityIds.length === 0
+      );
+    }
+  }, [
+    selectedGerenciaIds,
+    selectedMunicipalityIds,
+    geoLevel,
+  ]);
+
+  useEffect(() => {
     const hasActiveGeoSelection = selectedStateIds.length > 0
       || selectedMunicipalityIds.length > 0
       || selectedGerenciaIds.length > 0;
 
     if (!hasActiveGeoSelection && hadActiveGeoSelectionRef.current) {
-      setGeoLevel('estado');
+      if (geoLevel !== 'gerencia') {
+        setGeoLevel('estado');
+      }
+
       lastAutoFitKeyRef.current = '';
     }
 
     hadActiveGeoSelectionRef.current = hasActiveGeoSelection;
-  }, [selectedStateIds, selectedMunicipalityIds, selectedGerenciaIds]);
+  }, [selectedStateIds, selectedMunicipalityIds, selectedGerenciaIds, geoLevel]);
 
   useEffect(() => {
     let isMounted = true;
@@ -1543,9 +1565,16 @@ function DashboardMap({
       permisos: [],
     });
 
-    setGeoLevel('estado');
+    const nextGeoLevel = geoLevel === 'gerencia' ? 'gerencia' : 'estado';
+
+    setGeoLevel(nextGeoLevel);
     lastAutoFitKeyRef.current = '';
-    updateSelectionContext('Vista nacional por estados');
+
+    updateSelectionContext(
+      nextGeoLevel === 'gerencia'
+        ? 'Vista nacional por gerencias'
+        : 'Vista nacional por estados'
+    );
   }
 
   const rangeLegend = buildRangeLegend(activeGeoData.quantiles || []);

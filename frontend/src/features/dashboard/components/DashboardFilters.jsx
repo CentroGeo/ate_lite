@@ -199,6 +199,7 @@ export default function DashboardFilters({ filters, onApply, onClear }) {
     addMultiChips('alertTypes', 'Alerta', draft.alertTypes);
     addMultiChips('estados', 'Estado', draft.estados);
     addMultiChips('municipios', 'Municipio', draft.municipios);
+    addMultiChips('gerencias', 'Gerencia', draft.gerencias);
     addMultiChips('modalidades', 'Modalidad', draft.modalidades);
     addMultiChips('tecnologias', 'Tecnología', draft.tecnologias);
     addMultiChips('permisos', 'Permiso', draft.permisos);
@@ -212,6 +213,26 @@ export default function DashboardFilters({ filters, onApply, onClear }) {
       ...current,
       [field]: value,
     }));
+  }
+
+  function updateLocationField(field, value) {
+    setDraft((current) => {
+      const next = {
+        ...current,
+        [field]: value,
+      };
+
+      if (field === 'gerencias') {
+        next.estados = [];
+        next.municipios = [];
+      }
+
+      if (field === 'estados' || field === 'municipios') {
+        next.gerencias = [];
+      }
+
+      return next;
+    });
   }
 
   function clearFilters() {
@@ -386,7 +407,7 @@ export default function DashboardFilters({ filters, onApply, onClear }) {
                     <select
                       multiple
                       value={draft.estados}
-                      onChange={(event) => updateField('estados', getSelectedValues(event))}
+                      onChange={(event) => updateLocationField('estados', getSelectedValues(event))}
                     >
                       {options.estados.map((item) => (
                         <option key={item.id} value={item.id}>
@@ -401,10 +422,25 @@ export default function DashboardFilters({ filters, onApply, onClear }) {
                     <select
                       multiple
                       value={draft.municipios}
-                      onChange={(event) => updateField('municipios', getSelectedValues(event))}
+                      onChange={(event) => updateLocationField('municipios', getSelectedValues(event))}
                     >
                       {municipiosVisibles.map((item) => (
                         <option key={`${item.estado_id}-${item.id}`} value={`${item.estado_id}${item.id}`}>
+                          {item.nombre} ({item.total_permisos})
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+
+                  <label>
+                    Gerencias regionales
+                    <select
+                      multiple
+                      value={draft.gerencias}
+                      onChange={(event) => updateLocationField('gerencias', getSelectedValues(event))}
+                    >
+                      {(options.gerencias || []).map((item) => (
+                        <option key={item.id} value={String(item.id)}>
                           {item.nombre} ({item.total_permisos})
                         </option>
                       ))}
