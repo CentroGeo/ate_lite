@@ -41,6 +41,24 @@ function formatDate(value) {
   }).format(new Date(value));
 }
 
+function formatAlertActivation(row) {
+  const origin = String(row?.origen || '').toLowerCase();
+
+  if (origin !== 'consumo') {
+    return '-';
+  }
+
+  if (!row?.anio) {
+    return '-';
+  }
+
+  if (row.mes_ini) {
+    return `${row.mes_ini} ${row.anio}`;
+  }
+
+  return String(row.anio);
+}
+
 export default function DashboardPage() {
   const [alertSource, setAlertSource] = useState('all');
   const [alertLevel, setAlertLevel] = useState(3);
@@ -137,28 +155,43 @@ export default function DashboardPage() {
     {
       title: 'Sin histórico',
       value: alerts.permisos_sin_historico,
+      description: 'Sin trazabilidad histórica',
     },
     {
       title: 'Sin georreferencia',
       value: alerts.permisos_sin_georeferencia,
+      description: 'Ubicación pendiente',
     },
     {
       title: 'Consumo auxiliar 0',
       value: alerts.sin_consumo,
+      description: 'Revisión operativa',
     },
     {
       title: 'Generación bruta/neta 0',
       value: alerts.sin_generacion,
+      description: 'Producción reportada en cero',
     },
     {
       title: 'Factor de planta',
       value: alerts.factor_planta_mayor_100,
+      description: 'Valores fuera de rango',
     },
     {
       title: 'Alta variabilidad',
       value: alerts.alta_variabilidad,
+      description: 'Cambios atípicos detectados',
     },
   ];
+
+  const alertLevelCards = alertsByLevel.map((row) => ({
+    title: Number(row.id_nivel) === 3 ? 'Críticas' : 'Advertencias',
+    value: row.total,
+    description: Number(row.id_nivel) === 3
+      ? 'Atención prioritaria'
+      : 'Revisión recomendada',
+    level: Number(row.id_nivel),
+  }));
 
   return (
     <main className="dashboard-content">
@@ -226,30 +259,48 @@ export default function DashboardPage() {
             />
           </section>
 
-          <h2 className="section-title">Alertas principales</h2>
+          <h2 className="section-title alert-section-title">Alertas principales</h2>
 
           <section className="db-grid">
             {alertCards.map((card) => (
-              <article className="db-card" key={card.title}>
-                <span className="db-card-title">{card.title}</span>
+              <article
+                className={`db-card kpi-card alert-kpi-card ${summaryRefreshing ? 'is-refreshing' : ''}`}
+                key={card.title}
+              >
+                <div className="kpi-card-topline">
+                  <span className="db-card-title">{card.title}</span>
+                  {summaryRefreshing && <span className="kpi-refresh-dot" />}
+                </div>
+
                 <strong className="db-card-value">
                   {formatNumber(card.value)}
                 </strong>
-                <span className="db-card-desc">id_nivel &gt; 0</span>
+                <span className="db-card-desc">{card.description}</span>
+
+                <div className="kpi-card-accent" />
               </article>
             ))}
           </section>
 
-          <h2 className="section-title">Alertas por nivel</h2>
+          <h2 className="section-title alert-section-title">Alertas por severidad</h2>
 
-          <section className="db-grid">
-            {alertsByLevel.map((row) => (
-              <article className="db-card" key={row.id_nivel}>
-                <span className="db-card-title">{row.descripcion_nivel}</span>
+          <section className="db-grid alert-level-grid">
+            {alertLevelCards.map((card) => (
+              <article
+                className={`db-card kpi-card alert-kpi-card severity-card severity-card-${card.level} ${summaryRefreshing ? 'is-refreshing' : ''}`}
+                key={card.level}
+              >
+                <div className="kpi-card-topline">
+                  <span className="db-card-title">{card.title}</span>
+                  {summaryRefreshing && <span className="kpi-refresh-dot" />}
+                </div>
+
                 <strong className="db-card-value">
-                  {formatNumber(row.total)}
+                  {formatNumber(card.value)}
                 </strong>
-                <span className="db-card-desc">Nivel {row.id_nivel}</span>
+                <span className="db-card-desc">{card.description}</span>
+
+                <div className="kpi-card-accent" />
               </article>
             ))}
           </section>
@@ -307,14 +358,13 @@ export default function DashboardPage() {
               </label>
 
               <label>
-                Nivel:{' '}
+                Severidad:{' '}
                 <select
                   value={alertLevel}
                   onChange={(event) => setAlertLevel(Number(event.target.value))}
                 >
                   <option value={3}>Crítico</option>
                   <option value={2}>Advertencia</option>
-                  <option value={1}>Inactivo</option>
                 </select>
               </label>
             </div>
@@ -336,8 +386,7 @@ export default function DashboardPage() {
                       <th style={{ textAlign: 'left', padding: '0.5rem' }}>Permiso</th>
                       <th style={{ textAlign: 'left', padding: '0.5rem' }}>Alerta</th>
                       <th style={{ textAlign: 'left', padding: '0.5rem' }}>Mensaje</th>
-                      <th style={{ textAlign: 'left', padding: '0.5rem' }}>Periodo</th>
-                      <th style={{ textAlign: 'left', padding: '0.5rem' }}>Fecha</th>
+                      <th style={{ textAlign: 'left', padding: '0.5rem' }}>Activación</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -348,12 +397,7 @@ export default function DashboardPage() {
                         <td style={{ padding: '0.5rem' }}>{row.nombre_alerta}</td>
                         <td style={{ padding: '0.5rem' }}>{row.mensaje_especifico}</td>
                         <td style={{ padding: '0.5rem' }}>
-                          {row.anio
-                            ? `${row.anio} · ${row.mes_ini || '-'} - ${row.mes_fin || '-'}`
-                            : '-'}
-                        </td>
-                        <td style={{ padding: '0.5rem' }}>
-                          {formatDate(row.fecha_evaluacion)}
+                          {formatAlertActivation(row)}
                         </td>
                       </tr>
                     ))}

@@ -2262,3 +2262,136 @@ button {
   stroke: #fde68a !important;
   stroke-width: 1.8px !important;
 }
+
+/* --- Alertas con lenguaje visual de KPIs principales --- */
+
+.alert-section-title {
+  margin-top: 2rem;
+}
+
+.alert-kpi-card {
+  min-height: 112px;
+}
+
+.alert-kpi-card .db-card-title {
+  color: #7a244f;
+  font-size: 0.74rem;
+  opacity: 0.96;
+}
+
+.alert-kpi-card .db-card-value {
+  color: #a21d4e;
+  font-size: clamp(1.65rem, 2.4vw, 2.45rem);
+}
+
+.alert-kpi-card .db-card-desc {
+  color: #7a244f;
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.alert-kpi-card::before {
+  background:
+    radial-gradient(circle at 88% 8%, rgba(250, 204, 21, 0.18), transparent 34%),
+    radial-gradient(circle at 18% 95%, rgba(122, 36, 79, 0.12), transparent 32%);
+  content: '';
+  inset: 0;
+  pointer-events: none;
+  position: absolute;
+}
+
+.alert-level-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.severity-card {
+  min-height: 132px;
+}
+
+.severity-card-3 {
+  background:
+    radial-gradient(circle at top right, rgba(162, 29, 78, 0.16), transparent 42%),
+    linear-gradient(180deg, #ffffff 0%, #fff8fb 100%);
+}
+
+.severity-card-2 {
+  background:
+    radial-gradient(circle at top right, rgba(217, 119, 6, 0.14), transparent 42%),
+    linear-gradient(180deg, #ffffff 0%, #fffdf7 100%);
+}
+
+.severity-card-3 .db-card-value {
+  color: #9d2148;
+}
+
+.severity-card-2 .db-card-value {
+  color: #b45309;
+}
+
+.severity-card-3 .kpi-card-accent {
+  background: linear-gradient(90deg, #7a244f, #9d2148, #db2777);
+}
+
+.severity-card-2 .kpi-card-accent {
+  background: linear-gradient(90deg, #b45309, #d97706, #facc15);
+}
+
+@media (max-width: 820px) {
+  .alert-level-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* --- Alert cards: degradado suave definitivo --- */
+
+.alert-kpi-card,
+.alert-level-grid .severity-card {
+  background:
+    radial-gradient(circle at 96% 0%, rgba(250, 204, 21, 0.13), transparent 30%),
+    radial-gradient(circle at 0% 100%, rgba(122, 36, 79, 0.08), transparent 34%),
+    linear-gradient(180deg, #ffffff 0%, #fbfbfc 100%) !important;
+  border: 1px solid rgba(17, 24, 39, 0.07);
+  box-shadow: 0 16px 34px rgba(15, 23, 42, 0.07);
+  min-height: 112px;
+}
+
+.alert-kpi-card::before,
+.alert-level-grid .severity-card::before {
+  display: none !important;
+}
+
+.alert-level-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.alert-level-grid .severity-card {
+  min-height: 132px;
+}
+
+.alert-kpi-card .db-card-title,
+.alert-level-grid .severity-card .db-card-title {
+  color: #7a244f !important;
+}
+
+.alert-kpi-card .db-card-value,
+.alert-level-grid .severity-card .db-card-value {
+  color: #9d2148 !important;
+}
+
+.alert-kpi-card .db-card-desc,
+.alert-level-grid .severity-card .db-card-desc {
+  color: #7a244f !important;
+  opacity: 0.9;
+}
+
+.alert-kpi-card .kpi-card-accent,
+.alert-level-grid .severity-card .kpi-card-accent {
+  background: linear-gradient(90deg, #7a244f, #d97706, #facc15) !important;
+  opacity: 0.9;
+}
+
+@media (max-width: 820px) {
+  .alert-level-grid {
+    grid-template-columns: 1fr;
+  }
+}
