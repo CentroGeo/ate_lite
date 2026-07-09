@@ -11,6 +11,7 @@ export function appendDashboardFilters(params, filters = {}) {
     'alertTypes',
     'estados',
     'municipios',
+    'gerencias',
     'modalidades',
     'tecnologias',
     'permisos',

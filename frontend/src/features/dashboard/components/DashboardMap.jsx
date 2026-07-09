@@ -7,6 +7,7 @@ import useDashboardPoints from '../hooks/useDashboardPoints';
 const GEOJSON_URLS = {
   estado: '/geo/ent_R.geojson',
   municipio: '/geo/mun_R.geojson',
+  gerencia: '/geo/gReg.geojson',
 };
 
 const METRIC_LABELS = {
@@ -102,6 +103,15 @@ function getFeatureId(feature, geoLevel) {
     return normalizeStateId(raw);
   }
 
+  if (geoLevel === 'gerencia') {
+    return readProp(properties, [
+      'id',
+      'ID',
+      'id_gerencia',
+      'gerencia_id',
+    ]);
+  }
+
   const directMunicipality = readProp(properties, [
     'municipio_cvegeo',
     'CVEGEO',
@@ -173,6 +183,16 @@ function getFeatureName(feature, geoLevel) {
       'nombre',
       'NOMBRE',
     ]) || 'Sin entidad';
+  }
+
+  if (geoLevel === 'gerencia') {
+    return readProp(properties, [
+      'gerencia_regional',
+      'region_control',
+      'nombre',
+      'NOMBRE',
+      'name',
+    ]) || 'Sin gerencia';
   }
 
   return readProp(properties, [
@@ -296,7 +316,7 @@ function getDetailFitOptions(geoLevel, overrides = {}) {
       left: 70,
     },
     duration: 600,
-    maxZoom: geoLevel === 'estado' ? 7.4 : 11.2,
+    maxZoom: geoLevel === 'municipio' ? 11.2 : 7.4,
     ...overrides,
   };
 }
@@ -315,7 +335,12 @@ function buildSelectionLabel({
   featureName,
   stateCount,
   municipalityCount,
+  gerenciaCount = 0,
 }) {
+  if (gerenciaCount > 1) {
+    return `${gerenciaCount} gerencias seleccionadas`;
+  }
+
   if (municipalityCount > 1) {
     return `${municipalityCount} municipios seleccionados`;
   }
@@ -326,6 +351,10 @@ function buildSelectionLabel({
 
   if (featureName && geoLevel === 'municipio') {
     return `Municipio: ${featureName}`;
+  }
+
+  if (featureName && geoLevel === 'gerencia') {
+    return `Gerencia: ${featureName}`;
   }
 
   if (featureName && geoLevel === 'estado') {
@@ -377,12 +406,14 @@ function DashboardMap({
   const nameLookupRef = useRef({
     estado: new Map(),
     municipio: new Map(),
+    gerencia: new Map(),
   });
 
   const [mapReady, setMapReady] = useState(false);
   const [geoLevel, setGeoLevel] = useState('estado');
   const [metric, setMetric] = useState('permisos');
   const [geoJson, setGeoJson] = useState(null);
+  const [geoJsonLoading, setGeoJsonLoading] = useState(false);
   const [mapTitleContext, setMapTitleContext] = useState('Vista nacional por estados');
   const [selectedPoint, setSelectedPoint] = useState(null);
   const [pinModeEnabled, setPinModeEnabled] = useState(false);
@@ -399,8 +430,13 @@ function DashboardMap({
     ? filters.municipios.map(String)
     : [];
 
+  const selectedGerenciaIds = Array.isArray(filters?.gerencias)
+    ? filters.gerencias.map(String)
+    : [];
+
   const isNationalView = selectedStateIds.length === 0
-    && selectedMunicipalityIds.length === 0;
+    && selectedMunicipalityIds.length === 0
+    && selectedGerenciaIds.length === 0;
 
   const activePermitIds = Array.isArray(filters?.permisos)
     ? filters.permisos.map(String)
@@ -426,8 +462,17 @@ function DashboardMap({
     const baseFilters = {
       ...filters,
       municipios: [],
+      gerencias: [],
       permisos: [],
     };
+
+    if (geoLevel === 'gerencia') {
+      return {
+        ...baseFilters,
+        estados: [],
+        municipios: [],
+      };
+    }
 
     if (geoLevel === 'estado' || selectedStateIds.length !== 1) {
       return {
@@ -449,6 +494,20 @@ function DashboardMap({
     metric,
   });
 
+  const activeGeoData = useMemo(() => {
+    if (loading) {
+      return {
+        features: [],
+        quantiles: [],
+      };
+    }
+
+    return {
+      features: data?.features || [],
+      quantiles: data?.quantiles || [],
+    };
+  }, [data, loading]);
+
   const pointsFilters = useMemo(() => ({
     ...filters,
     permisos: [],
@@ -460,7 +519,7 @@ function DashboardMap({
     error: pointsError,
   } = useDashboardPoints({
     filters: pointsFilters,
-    enabled: pinModeEnabled && selectedMunicipalityIds.length === 1,
+    enabled: pinModeEnabled && (selectedMunicipalityIds.length === 1 || selectedGerenciaIds.length === 1),
     limit: 2000,
   });
 
@@ -493,6 +552,10 @@ function DashboardMap({
   }
 
   function cacheFeatureNames(features, level) {
+    if (!nameLookupRef.current[level]) {
+      nameLookupRef.current[level] = new Map();
+    }
+
     const lookup = nameLookupRef.current[level];
 
     features.forEach((feature) => {
@@ -582,14 +645,17 @@ function DashboardMap({
       updateSelectionContext(
         geoLevel === 'municipio'
           ? 'Vista nacional por municipios'
-          : 'Vista nacional por estados'
+          : geoLevel === 'gerencia'
+            ? 'Vista nacional por gerencias'
+            : 'Vista nacional por estados'
       );
     }
   }, [isNationalView, geoLevel, onSelectionLabelChange]);
 
   useEffect(() => {
     const hasActiveGeoSelection = selectedStateIds.length > 0
-      || selectedMunicipalityIds.length > 0;
+      || selectedMunicipalityIds.length > 0
+      || selectedGerenciaIds.length > 0;
 
     if (!hasActiveGeoSelection && hadActiveGeoSelectionRef.current) {
       setGeoLevel('estado');
@@ -597,10 +663,17 @@ function DashboardMap({
     }
 
     hadActiveGeoSelectionRef.current = hasActiveGeoSelection;
-  }, [selectedStateIds, selectedMunicipalityIds]);
+  }, [selectedStateIds, selectedMunicipalityIds, selectedGerenciaIds]);
 
   useEffect(() => {
     let isMounted = true;
+
+    setGeoJson({
+      type: 'FeatureCollection',
+      features: [],
+    });
+    setGeoJsonLoading(true);
+    popupRef.current?.remove();
 
     fetch(GEOJSON_URLS[geoLevel])
       .then((response) => response.json())
@@ -608,10 +681,19 @@ function DashboardMap({
         if (isMounted) {
           cacheFeatureNames(json.features || [], geoLevel);
           setGeoJson(json);
+          setGeoJsonLoading(false);
         }
       })
       .catch((err) => {
         console.error('No se pudo cargar GeoJSON:', err);
+
+        if (isMounted) {
+          setGeoJson({
+            type: 'FeatureCollection',
+            features: [],
+          });
+          setGeoJsonLoading(false);
+        }
       });
 
     return () => {
@@ -620,24 +702,24 @@ function DashboardMap({
   }, [geoLevel]);
 
   const values = useMemo(
-    () => data.features.map((item) => Number(item.value || 0)),
-    [data.features]
+    () => activeGeoData.features.map((item) => Number(item.value || 0)),
+    [activeGeoData.features]
   );
 
   const useQuintiles = useMemo(
-    () => hasUsableQuintiles(data.quantiles || [], values),
-    [data.quantiles, values]
+    () => hasUsableQuintiles(activeGeoData.quantiles || [], values),
+    [activeGeoData.quantiles, values]
   );
 
   const valueById = useMemo(() => {
     const map = new Map();
 
-    data.features.forEach((item) => {
+    activeGeoData.features.forEach((item) => {
       map.set(String(item.id), item);
     });
 
     return map;
-  }, [data.features]);
+  }, [activeGeoData.features]);
 
   const visibleFeatures = useMemo(() => {
     const features = geoJson?.features || [];
@@ -656,7 +738,7 @@ function DashboardMap({
         const id = getFeatureId(feature, geoLevel);
         const stats = valueById.get(id);
         const value = Number(stats?.value || 0);
-        const valueClass = getValueClass(value, data.quantiles || [], useQuintiles);
+        const valueClass = getValueClass(value, activeGeoData.quantiles || [], useQuintiles);
 
         return {
           ...feature,
@@ -672,7 +754,9 @@ function DashboardMap({
             dashboardClass: valueClass,
             dashboardSelected: geoLevel === 'estado'
               ? selectedStateIds.includes(id)
-              : selectedMunicipalityIds.includes(id),
+              : geoLevel === 'gerencia'
+                ? selectedGerenciaIds.includes(id)
+                : selectedMunicipalityIds.includes(id),
           },
         };
       }),
@@ -681,10 +765,11 @@ function DashboardMap({
     visibleFeatures,
     geoLevel,
     valueById,
-    data.quantiles,
+    activeGeoData.quantiles,
     useQuintiles,
     selectedStateIds,
     selectedMunicipalityIds,
+    selectedGerenciaIds,
     metric,
   ]);
 
@@ -712,13 +797,31 @@ function DashboardMap({
       || id
     ));
 
+    const gerenciaNames = selectedGerenciaIds.map((id) => (
+      getCachedName('gerencia', id)
+      || namesById.get(id)
+      || id
+    ));
+
     return {
       stateNames,
       municipalityNames,
+      gerenciaNames,
     };
-  }, [enrichedGeoJson, selectedStateIds, selectedMunicipalityIds]);
+  }, [enrichedGeoJson, selectedStateIds, selectedMunicipalityIds, selectedGerenciaIds]);
 
   useEffect(() => {
+    if (selectedGerenciaIds.length > 1) {
+      updateSelectionContext(`${selectedGerenciaIds.length} gerencias seleccionadas`);
+      return;
+    }
+
+    if (selectedGerenciaIds.length === 1) {
+      const gerenciaName = selectedNames.gerenciaNames[0] || selectedGerenciaIds[0];
+      updateSelectionContext(`Gerencia: ${gerenciaName}`);
+      return;
+    }
+
     if (selectedMunicipalityIds.length > 1) {
       updateSelectionContext(`${selectedMunicipalityIds.length} municipios seleccionados`);
       return;
@@ -750,11 +853,14 @@ function DashboardMap({
     updateSelectionContext(
       geoLevel === 'municipio'
         ? 'Vista nacional por municipios'
-        : 'Vista nacional por estados'
+        : geoLevel === 'gerencia'
+          ? 'Vista nacional por gerencias'
+          : 'Vista nacional por estados'
     );
   }, [
     selectedStateIds,
     selectedMunicipalityIds,
+    selectedGerenciaIds,
     selectedNames,
     geoLevel,
   ]);
@@ -772,7 +878,13 @@ function DashboardMap({
 
     let targetFeatures = [];
 
-    if (selectedMunicipalityIds.length > 0) {
+    if (selectedGerenciaIds.length > 0 && geoLevel === 'gerencia') {
+      const selectedSet = new Set(selectedGerenciaIds.map(String));
+
+      targetFeatures = enrichedGeoJson.features.filter((feature) => (
+        selectedSet.has(String(feature.properties?.dashboardId || ''))
+      ));
+    } else if (selectedMunicipalityIds.length > 0) {
       const selectedSet = new Set(selectedMunicipalityIds.map(String));
 
       targetFeatures = enrichedGeoJson.features.filter((feature) => (
@@ -803,6 +915,7 @@ function DashboardMap({
     geoLevel,
     selectedStateIds,
     selectedMunicipalityIds,
+    selectedGerenciaIds,
     isPointPermitFilterActive,
   ]);
 
@@ -881,7 +994,7 @@ function DashboardMap({
       map.getSource(GEO_SOURCE_ID).setData(enrichedGeoJson);
     }
 
-    const autoFitKey = `${geoLevel}|${selectedStateId || 'nacional'}`;
+    const autoFitKey = `${geoLevel}|${selectedStateId || selectedGerenciaIds.join(',') || 'nacional'}`;
     const bounds = getBoundsForFeatures(enrichedGeoJson.features);
 
     if (bounds && lastAutoFitKeyRef.current !== autoFitKey && !isPointPermitFilterActive) {
@@ -892,7 +1005,7 @@ function DashboardMap({
       map.fitBounds(bounds, fitOptions);
       lastAutoFitKeyRef.current = autoFitKey;
     }
-  }, [mapReady, enrichedGeoJson, geoLevel, selectedStateId, isNationalView, isPointPermitFilterActive]);
+  }, [mapReady, enrichedGeoJson, geoLevel, selectedStateId, selectedGerenciaIds, isNationalView, isPointPermitFilterActive]);
 
 
   useEffect(() => {
@@ -979,6 +1092,63 @@ function DashboardMap({
         map.fitBounds(bounds, getDetailFitOptions(geoLevel));
       }
 
+      if (geoLevel === 'gerencia') {
+        if (isMultiSelect) {
+          const exists = selectedGerenciaIds.includes(id);
+          const nextGerencias = exists
+            ? selectedGerenciaIds.filter((item) => item !== id)
+            : [...selectedGerenciaIds, id];
+
+          setPinModeEnabled(false);
+          setSelectedPoint(null);
+          pointBaseFiltersRef.current = null;
+
+          onApplyFilters({
+            ...filters,
+            estados: [],
+            municipios: [],
+            gerencias: nextGerencias,
+            permisos: [],
+          });
+
+          updateSelectionContext(
+            nextGerencias.length === 0
+              ? 'Vista nacional por gerencias'
+              : buildSelectionLabel({
+                  geoLevel,
+                  featureName: nextGerencias.length === 1 ? featureName : '',
+                  stateCount: 0,
+                  municipalityCount: 0,
+                  gerenciaCount: nextGerencias.length,
+                })
+          );
+
+          return;
+        }
+
+        setPinModeEnabled(true);
+        setSelectedPoint(null);
+        pointBaseFiltersRef.current = null;
+
+        onApplyFilters({
+          ...filters,
+          estados: [],
+          municipios: [],
+          gerencias: [id],
+          permisos: [],
+        });
+
+        updateSelectionContext(buildSelectionLabel({
+          geoLevel,
+          featureName,
+          stateCount: 0,
+          municipalityCount: 0,
+          gerenciaCount: 1,
+        }));
+
+        return;
+      }
+
       if (geoLevel === 'estado') {
         if (isMultiSelect) {
           const exists = selectedStateIds.includes(id);
@@ -994,6 +1164,7 @@ function DashboardMap({
             ...filters,
             estados: nextStates,
             municipios: [],
+            gerencias: [],
             permisos: [],
           });
 
@@ -1019,6 +1190,7 @@ function DashboardMap({
           ...filters,
           estados: [id],
           municipios: [],
+          gerencias: [],
           permisos: [],
         });
 
@@ -1047,6 +1219,7 @@ function DashboardMap({
           ...filters,
           estados: selectedStateId ? [selectedStateId] : selectedStateIds,
           municipios: nextMunicipalities,
+          gerencias: [],
           permisos: [],
         });
 
@@ -1067,6 +1240,7 @@ function DashboardMap({
         ...filters,
         estados: parentId ? [parentId] : selectedStateIds,
         municipios: [id],
+        gerencias: [],
         permisos: [],
       });
 
@@ -1104,6 +1278,7 @@ function DashboardMap({
     selectedStateId,
     selectedStateIds,
     selectedMunicipalityIds,
+    selectedGerenciaIds,
   ]);
 
 
@@ -1119,7 +1294,10 @@ function DashboardMap({
 
     const points = pointsData?.points || [];
 
-    if (selectedMunicipalityIds.length === 0 || points.length === 0) {
+    const hasSinglePinRegion = selectedMunicipalityIds.length === 1
+      || selectedGerenciaIds.length === 1;
+
+    if (!hasSinglePinRegion || points.length === 0) {
       return;
     }
 
@@ -1319,6 +1497,7 @@ function DashboardMap({
     mapReady,
     pointsData,
     selectedMunicipalityIds,
+    selectedGerenciaIds,
     filters,
     filters?.permisos,
     onApplyFilters,
@@ -1360,6 +1539,7 @@ function DashboardMap({
       ...filters,
       estados: [],
       municipios: [],
+      gerencias: [],
       permisos: [],
     });
 
@@ -1368,24 +1548,15 @@ function DashboardMap({
     updateSelectionContext('Vista nacional por estados');
   }
 
-  const rangeLegend = buildRangeLegend(data.quantiles || []);
+  const rangeLegend = buildRangeLegend(activeGeoData.quantiles || []);
+  const isMapBusy = loading || geoJsonLoading;
 
   return (
     <section className="db-card dashboard-map-card">
-      <div className="map-header">
-        <div>
-          <span className="db-card-title">Mapa</span>
-          <h2>
-            {geoLevel === 'estado'
-              ? 'Distribución de permisos por entidad'
-              : 'Distribución de permisos por municipio'}
-          </h2>
-          <p>
-            Métrica: {METRIC_LABELS[metric] || metric}
-          </p>
-        </div>
+      <div className="map-header map-header-compact">
+        <span className="db-card-title map-header-kicker">Mapa</span>
 
-        <div className="map-actions">
+        <div className="map-actions map-actions-compact">
           {isNationalView && (
             <div className="map-view-switcher">
               <button
@@ -1409,10 +1580,22 @@ function DashboardMap({
               >
                 Municipios
               </button>
+
+              <button
+                type="button"
+                className={geoLevel === 'gerencia' ? 'is-active' : ''}
+                onClick={() => {
+                  setGeoLevel('gerencia');
+                  lastAutoFitKeyRef.current = '';
+                }}
+              >
+                Gerencias
+              </button>
             </div>
           )}
 
           <select
+            aria-label="Métrica del mapa"
             value={metric}
             onChange={(event) => setMetric(event.target.value)}
           >
@@ -1434,9 +1617,17 @@ function DashboardMap({
       <div className="map-stage">
         <div ref={mapContainerRef} className="maplibre-dashboard-map" />
 
-        {loading && (
+        {isMapBusy && (
           <div className="map-busy-overlay">
-            Actualizando mapa…
+            {geoJsonLoading
+              ? `Cargando ${
+                  geoLevel === 'gerencia'
+                    ? 'gerencias'
+                    : geoLevel === 'municipio'
+                      ? 'municipios'
+                      : 'estados'
+                }…`
+              : 'Actualizando métrica…'}
           </div>
         )}
 

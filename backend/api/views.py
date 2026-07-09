@@ -207,6 +207,7 @@ def parse_dashboard_filters(request):
         "alert_types": get_query_int_values(request, "alertTypes"),
         "estados": get_query_values(request, "estados"),
         "municipios": get_query_values(request, "municipios"),
+        "gerencias": get_query_int_values(request, "gerencias"),
         "modalidades": get_query_values(request, "modalidades"),
         "tecnologias": get_query_values(request, "tecnologias"),
         "permisos": get_query_values(request, "permisos"),
@@ -278,6 +279,13 @@ def build_permisos_geo_where(filters, alias):
             f')'
         ),
         filters["municipios"],
+    )
+
+    add_any_condition(
+        conditions,
+        params,
+        f'{alias}."id_gerencia"',
+        filters["gerencias"],
     )
 
     return " AND ".join(conditions), params
@@ -1074,6 +1082,25 @@ def dashboard_options(request):
         municipios = dictfetchall(cursor)
 
         cursor.execute("""
+            WITH gerencias_base AS (
+                SELECT
+                    "id_gerencia" AS gerencia_id,
+                    NULLIF(BTRIM("gerencia_regional"), '') AS gerencia_nombre,
+                    NULLIF(BTRIM("NumeroPermiso"), '') AS numero_permiso
+                FROM electricidad.dashboard_permisos
+            )
+            SELECT
+                gerencia_id,
+                MAX(gerencia_nombre) AS gerencia_nombre,
+                COUNT(DISTINCT numero_permiso) AS total_permisos
+            FROM gerencias_base
+            WHERE gerencia_id IS NOT NULL
+            GROUP BY gerencia_id
+            ORDER BY gerencia_id;
+        """)
+        gerencias = dictfetchall(cursor)
+
+        cursor.execute("""
             WITH valores AS (
                 SELECT NULLIF(BTRIM("NumeroPermiso"), '') AS numero_permiso
                 FROM electricidad.dashboard_permisos
@@ -1173,6 +1200,14 @@ def dashboard_options(request):
                 "total_permisos": to_int(row["total_permisos"]),
             }
             for row in municipios
+        ],
+        "gerencias": [
+            {
+                "id": to_int(row["gerencia_id"]),
+                "nombre": row["gerencia_nombre"] or f'Gerencia {to_int(row["gerencia_id"])}',
+                "total_permisos": to_int(row["total_permisos"]),
+            }
+            for row in gerencias
         ],
         "permisos": [
             {
@@ -1395,7 +1430,7 @@ def dashboard_geo(request):
     geo_level = request.GET.get("geoLevel", "estado")
     metric = request.GET.get("metric", "permisos")
 
-    if geo_level not in {"estado", "municipio"}:
+    if geo_level not in {"estado", "municipio", "gerencia"}:
         geo_level = "estado"
 
     if metric not in {
@@ -1417,6 +1452,15 @@ def dashboard_geo(request):
             'NULLIF(BTRIM(p."inegi_entidad"), \'\'), '
             'NULLIF(BTRIM(p."CentralEntidadFederativa"), \'\'), '
             '\'Sin entidad\''
+            ')'
+        )
+        parent_expr = "NULL::text"
+    elif geo_level == "gerencia":
+        geo_id_expr = 'p."id_gerencia"::text'
+        geo_name_expr = (
+            'COALESCE('
+            'NULLIF(BTRIM(p."gerencia_regional"), \'\'), '
+            '\'Gerencia \' || p."id_gerencia"::text'
             ')'
         )
         parent_expr = "NULL::text"
@@ -1594,6 +1638,8 @@ def dashboard_points(request):
                 NULLIF(BTRIM(p."CentralMunicipio"), ''),
                 'Sin municipio'
             ) AS municipio,
+            p."id_gerencia" AS id_gerencia,
+            NULLIF(BTRIM(p."gerencia_regional"), '') AS gerencia,
             ST_X(p."geom") AS lng,
             ST_Y(p."geom") AS lat
         FROM electricidad.dashboard_permisos p
@@ -1627,6 +1673,8 @@ def dashboard_points(request):
                 "capacidad": to_float(row["capacidad"]),
                 "entidad": row["entidad"],
                 "municipio": row["municipio"],
+                "id_gerencia": to_int(row["id_gerencia"]),
+                "gerencia": row["gerencia"],
                 "lng": to_float(row["lng"]),
                 "lat": to_float(row["lat"]),
             }

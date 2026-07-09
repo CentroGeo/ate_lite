@@ -10,6 +10,7 @@ const DEFAULT_FILTERS = {
   alertTypes: [],
   estados: [],
   municipios: [],
+  gerencias: [],
   modalidades: [],
   tecnologias: [],
   permisos: [],
@@ -36,6 +37,7 @@ function normalizeFilters(filters = {}) {
     alertTypes: filters.alertTypes || [],
     estados: filters.estados || [],
     municipios: filters.municipios || [],
+    gerencias: filters.gerencias || [],
     modalidades: filters.modalidades || [],
     tecnologias: filters.tecnologias || [],
     permisos: filters.permisos || [],
@@ -96,6 +98,12 @@ export default function DashboardFilters({ filters, onApply, onClear }) {
         options.municipios.map((item) => [
           `${item.estado_id}${item.id}`,
           `${item.nombre}${estadoNames.get(String(item.estado_id)) ? `, ${estadoNames.get(String(item.estado_id))}` : ''}`,
+        ])
+      ),
+      gerencias: new Map(
+        (options.gerencias || []).map((item) => [
+          String(item.id),
+          item.nombre,
         ])
       ),
       modalidades: new Map(

@@ -2395,3 +2395,76 @@ button {
     grid-template-columns: 1fr;
   }
 }
+
+/* --- Dashboard map header minimal toolbar --- */
+
+.dashboard-map-card .map-header-compact {
+  align-items: center !important;
+  display: grid !important;
+  gap: 0.75rem !important;
+  grid-template-columns: auto minmax(0, 1fr) !important;
+  margin-bottom: 0.5rem !important;
+  min-height: 0 !important;
+}
+
+.dashboard-map-card .map-header-compact h2,
+.dashboard-map-card .map-header-compact p {
+  display: none !important;
+}
+
+.dashboard-map-card .map-header-kicker {
+  color: #c7ccd4 !important;
+  font-size: 0.72rem !important;
+  letter-spacing: 0.14em !important;
+  margin: 0 !important;
+  white-space: nowrap !important;
+}
+
+.dashboard-map-card .map-actions-compact {
+  align-items: center !important;
+  display: flex !important;
+  gap: 0.55rem !important;
+  justify-content: flex-end !important;
+  min-width: 0 !important;
+  width: 100% !important;
+}
+
+.dashboard-map-card .map-actions-compact .map-view-switcher {
+  background: #f3f4f6 !important;
+  border: 1px solid #e5e7eb !important;
+  border-radius: 999px !important;
+  display: inline-flex !important;
+  flex: 0 1 auto !important;
+  gap: 0.2rem !important;
+  max-width: 100% !important;
+  overflow-x: auto !important;
+  padding: 0.2rem !important;
+  white-space: nowrap !important;
+}
+
+.dashboard-map-card .map-actions-compact .map-view-switcher button {
+  border: 0 !important;
+  font-size: 0.8rem !important;
+  line-height: 1 !important;
+  padding: 0.42rem 0.62rem !important;
+  white-space: nowrap !important;
+}
+
+.dashboard-map-card .map-actions-compact select {
+  flex: 0 0 auto !important;
+  font-size: 0.82rem !important;
+  height: 2.25rem !important;
+  max-width: 190px !important;
+  min-width: 145px !important;
+  padding: 0.35rem 0.65rem !important;
+}
+
+@media (max-width: 900px) {
+  .dashboard-map-card .map-header-compact {
+    grid-template-columns: 1fr !important;
+  }
+
+  .dashboard-map-card .map-actions-compact {
+    justify-content: flex-start !important;
+  }
+}
