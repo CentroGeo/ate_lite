@@ -104,10 +104,10 @@ export default function DashboardPage() {
     },
     {
       title: 'Capacidad total',
-      value: formatNumber(summary.total_capacidad, {
+      value: formatNumber((summary.total_capacidad || 0) / 1000, {
         maximumFractionDigits: 2,
       }),
-      description: 'MW autorizados',
+      description: 'GW autorizados',
     },
     {
       title: 'Generación neta',

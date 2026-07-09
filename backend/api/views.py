@@ -410,7 +410,7 @@ def build_alert_where(filters, alias):
     if filters["alert_levels"]:
         add_any_condition(conditions, params, f"{alias}.id_nivel", filters["alert_levels"])
     else:
-        conditions.append(f"{alias}.id_nivel > 0")
+        conditions.append(f"{alias}.id_nivel > 1")
 
     add_any_condition(conditions, params, f"{alias}.id_alerta", filters["alert_types"])
 
@@ -537,12 +537,12 @@ def dashboard_summary(request):
 
                 (
                     SELECT COUNT(*)
-                    FROM selected_consumos
+                    FROM filtered_consumos
                 ) AS registros_consumo,
 
                 (
                     SELECT COUNT(DISTINCT NULLIF(BTRIM("NumeroPermiso"), ''))
-                    FROM selected_consumos
+                    FROM filtered_consumos
                 ) AS permisos_con_consumo,
 
                 (
@@ -565,7 +565,10 @@ def dashboard_summary(request):
         alert_where_p, alert_params_p = build_alert_where(filters, "ap")
         alert_where_c, alert_params_c = build_alert_where(filters, "ac")
 
+        cursor.execute("DROP TABLE IF EXISTS pg_temp.dashboard_alertas_summary;")
+
         cursor.execute(f"""
+            CREATE TEMP TABLE dashboard_alertas_summary AS
             WITH filtered_permisos AS (
                 SELECT p.*
                 FROM electricidad.dashboard_permisos p
@@ -576,9 +579,14 @@ def dashboard_summary(request):
                 FROM electricidad.dashboard_consumos c
                 WHERE {consumos_where}
             ),
-            alertas AS (
+            alertas_raw AS (
                 SELECT
                     'Permiso' AS origen,
+                    COALESCE(
+                        NULLIF(BTRIM(fp."Permisionario"), ''),
+                        NULLIF(BTRIM(fp."Razon_Social_Autorizada"), ''),
+                        NULLIF(BTRIM(ap."NumeroPermiso"), '')
+                    ) AS sujeto,
                     ap.id_alerta,
                     ap.id_nivel
                 FROM electricidad.bitacora_alertas_permisos ap
@@ -591,6 +599,11 @@ def dashboard_summary(request):
 
                 SELECT
                     'Consumo' AS origen,
+                    COALESCE(
+                        NULLIF(BTRIM(fc."Permisionario"), ''),
+                        NULLIF(BTRIM(fc."Razon_Social_Autorizada"), ''),
+                        NULLIF(BTRIM(fc."NumeroPermiso"), '')
+                    ) AS sujeto,
                     ac.id_alerta,
                     ac.id_nivel
                 FROM electricidad.bitacora_alertas_consumos ac
@@ -599,103 +612,65 @@ def dashboard_summary(request):
                 WHERE {alert_where_c}
             )
             SELECT
+                origen,
+                sujeto,
+                id_alerta,
+                MAX(id_nivel) AS id_nivel,
+                COUNT(*) AS registros_originales
+            FROM alertas_raw
+            WHERE id_nivel > 1
+            GROUP BY origen, sujeto, id_alerta;
+        """, permisos_params + consumos_params + alert_params_p + alert_params_c)
+
+        cursor.execute("""
+            SELECT
                 COUNT(*) AS total_alertas,
                 COUNT(*) FILTER (WHERE origen = 'Permiso') AS total_alertas_permisos,
                 COUNT(*) FILTER (WHERE origen = 'Consumo') AS total_alertas_consumos,
                 COUNT(*) FILTER (WHERE id_nivel = 3) AS alertas_criticas,
                 COUNT(*) FILTER (WHERE id_nivel = 2) AS alertas_advertencia,
-                COUNT(*) FILTER (WHERE id_nivel = 1) AS alertas_inactivas,
+                0 AS alertas_inactivas,
 
                 COUNT(*) FILTER (WHERE id_alerta = 1) AS permisos_sin_georeferencia,
                 COUNT(*) FILTER (WHERE id_alerta = 10) AS permisos_sin_historico,
                 COUNT(*) FILTER (WHERE id_alerta = 7) AS sin_consumo,
                 COUNT(*) FILTER (WHERE id_alerta = 11) AS sin_generacion,
-                COUNT(*) FILTER (WHERE id_alerta = 5) AS factor_planta_mayor_100,
+                COUNT(*) FILTER (WHERE id_alerta = 5 AND id_nivel = 3) AS factor_planta_mayor_100,
                 COUNT(*) FILTER (WHERE id_alerta = 12) AS alta_variabilidad
-            FROM alertas;
-        """, permisos_params + consumos_params + alert_params_p + alert_params_c)
+            FROM dashboard_alertas_summary;
+        """)
         alertas = dictfetchone(cursor)
 
-        cursor.execute(f"""
-            WITH filtered_permisos AS (
-                SELECT p.*
-                FROM electricidad.dashboard_permisos p
-                WHERE {permisos_where}
-            ),
-            filtered_consumos AS (
-                SELECT c.*
-                FROM electricidad.dashboard_consumos c
-                WHERE {consumos_where}
-            ),
-            alertas AS (
-                SELECT ap.id_alerta, ap.id_nivel
-                FROM electricidad.bitacora_alertas_permisos ap
-                JOIN filtered_permisos fp
-                  ON NULLIF(BTRIM(fp."NumeroPermiso"), '') =
-                     NULLIF(BTRIM(ap."NumeroPermiso"), '')
-                WHERE {alert_where_p}
-
-                UNION ALL
-
-                SELECT ac.id_alerta, ac.id_nivel
-                FROM electricidad.bitacora_alertas_consumos ac
-                JOIN filtered_consumos fc
-                  ON fc.id_registro = ac.id_registro
-                WHERE {alert_where_c}
-            )
+        cursor.execute("""
             SELECT
                 n.id_nivel,
                 n.descripcion_nivel,
                 COUNT(a.id_nivel) AS total
             FROM electricidad.cat_niveles_alerta n
-            LEFT JOIN alertas a
+            LEFT JOIN dashboard_alertas_summary a
                 ON a.id_nivel = n.id_nivel
-            WHERE n.id_nivel > 0
+            WHERE n.id_nivel IN (2, 3)
             GROUP BY n.id_nivel, n.descripcion_nivel
             ORDER BY n.id_nivel;
-        """, permisos_params + consumos_params + alert_params_p + alert_params_c)
+        """)
         alertas_por_nivel = dictfetchall(cursor)
 
-        cursor.execute(f"""
-            WITH filtered_permisos AS (
-                SELECT p.*
-                FROM electricidad.dashboard_permisos p
-                WHERE {permisos_where}
-            ),
-            filtered_consumos AS (
-                SELECT c.*
-                FROM electricidad.dashboard_consumos c
-                WHERE {consumos_where}
-            ),
-            alertas AS (
-                SELECT ap.id_alerta, ap.id_nivel
-                FROM electricidad.bitacora_alertas_permisos ap
-                JOIN filtered_permisos fp
-                  ON NULLIF(BTRIM(fp."NumeroPermiso"), '') =
-                     NULLIF(BTRIM(ap."NumeroPermiso"), '')
-                WHERE {alert_where_p}
-
-                UNION ALL
-
-                SELECT ac.id_alerta, ac.id_nivel
-                FROM electricidad.bitacora_alertas_consumos ac
-                JOIN filtered_consumos fc
-                  ON fc.id_registro = ac.id_registro
-                WHERE {alert_where_c}
-            )
+        cursor.execute("""
             SELECT
                 c.id_alerta,
                 c.nombre_alerta,
                 c.nivel_categoria,
                 COUNT(a.id_alerta) AS total
             FROM electricidad.cat_alertas c
-            JOIN alertas a
+            JOIN dashboard_alertas_summary a
                 ON a.id_alerta = c.id_alerta
             GROUP BY c.id_alerta, c.nombre_alerta, c.nivel_categoria
             ORDER BY total DESC, c.id_alerta
             LIMIT 10;
-        """, permisos_params + consumos_params + alert_params_p + alert_params_c)
+        """)
         top_alertas = dictfetchall(cursor)
+
+        cursor.execute("DROP TABLE IF EXISTS pg_temp.dashboard_alertas_summary;")
 
     data = {
         "status": "success",
