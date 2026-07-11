@@ -403,6 +403,7 @@ function DashboardMap({
   const pointBaseFiltersRef = useRef(null);
   const lastAutoFitKeyRef = useRef('');
   const hadActiveGeoSelectionRef = useRef(false);
+  const gerenciaMultiSelectModeRef = useRef(false);
   const nameLookupRef = useRef({
     estado: new Map(),
     municipio: new Map(),
@@ -664,11 +665,22 @@ function DashboardMap({
 
   useEffect(() => {
     if (selectedGerenciaIds.length === 0) {
+      gerenciaMultiSelectModeRef.current = false;
       return;
     }
 
     setSelectedPoint(null);
     pointBaseFiltersRef.current = null;
+
+    if (gerenciaMultiSelectModeRef.current || selectedGerenciaIds.length > 1) {
+      if (geoLevel !== 'gerencia') {
+        setGeoLevel('gerencia');
+        lastAutoFitKeyRef.current = '';
+      }
+
+      setPinModeEnabled(false);
+      return;
+    }
 
     if (selectedGerenciaIds.length === 1) {
       if (geoLevel !== 'municipio') {
@@ -677,15 +689,7 @@ function DashboardMap({
       }
 
       setPinModeEnabled(selectedMunicipalityIds.length === 1);
-      return;
     }
-
-    if (geoLevel !== 'gerencia') {
-      setGeoLevel('gerencia');
-      lastAutoFitKeyRef.current = '';
-    }
-
-    setPinModeEnabled(false);
   }, [
     selectedGerenciaIds,
     selectedMunicipalityIds,
@@ -1162,6 +1166,7 @@ function DashboardMap({
             ? selectedGerenciaIds.filter((item) => item !== id)
             : [...selectedGerenciaIds, id];
 
+          gerenciaMultiSelectModeRef.current = true;
           setPinModeEnabled(false);
           setSelectedPoint(null);
           pointBaseFiltersRef.current = null;
@@ -1189,6 +1194,7 @@ function DashboardMap({
           return;
         }
 
+        gerenciaMultiSelectModeRef.current = false;
         setPinModeEnabled(false);
         setSelectedPoint(null);
         pointBaseFiltersRef.current = null;
@@ -1602,6 +1608,7 @@ function DashboardMap({
     setSelectedPoint(null);
     setPinModeEnabled(false);
     pointBaseFiltersRef.current = null;
+    gerenciaMultiSelectModeRef.current = false;
 
     onApplyFilters({
       ...filters,
