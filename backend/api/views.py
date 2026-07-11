@@ -197,6 +197,15 @@ def get_query_int(request, name):
         return None
 
 
+def get_query_bool(request, name):
+    value = request.GET.get(name)
+
+    if value in (None, ""):
+        return False
+
+    return str(value).strip().lower() in {"1", "true", "yes", "si", "sí", "on"}
+
+
 def parse_dashboard_filters(request):
     filters = {
         "start_year": get_query_int(request, "startYear"),
@@ -205,6 +214,8 @@ def parse_dashboard_filters(request):
         "output_period": request.GET.get("outputPeriod") or "auto",
         "alert_levels": get_query_int_values(request, "alertLevels"),
         "alert_types": get_query_int_values(request, "alertTypes"),
+        "recent_consumption_alerts": get_query_bool(request, "recentConsumptionAlerts"),
+        "recent_consumption_alert_months": get_query_int(request, "recentConsumptionAlertMonths") or 6,
         "estados": get_query_values(request, "estados"),
         "municipios": get_query_values(request, "municipios"),
         "gerencias": get_query_int_values(request, "gerencias"),
@@ -229,6 +240,15 @@ def validate_dashboard_filters(filters):
             "field": "years",
             "message": "El año inicial no puede ser mayor que el año final.",
         })
+
+    if filters["recent_consumption_alerts"]:
+        months = filters["recent_consumption_alert_months"]
+
+        if months < 1 or months > 24:
+            errors.append({
+                "field": "recentConsumptionAlertMonths",
+                "message": "El filtro de alertas recientes debe estar entre 1 y 24 meses.",
+            })
 
     return errors
 
@@ -256,6 +276,165 @@ def build_temporal_consumos_where(filters, alias):
         params.append(filters["tipo_periodo"])
 
     return " AND ".join(conditions), params
+
+
+def get_recent_consumption_alert_permissions(filters):
+    if not filters.get("recent_consumption_alerts"):
+        return None
+
+    if "_recent_consumption_alert_permissions" in filters:
+        return filters["_recent_consumption_alert_permissions"]
+
+    months = filters.get("recent_consumption_alert_months") or 6
+
+    sql = """
+        WITH alert_records AS (
+            SELECT
+                NULLIF(BTRIM(dc."NumeroPermiso"), '') AS numero_permiso,
+                dc."Anio" AS anio,
+                CASE
+                    WHEN NULLIF(BTRIM(dc."MesIni"), '') ~ '^[0-9]+$'
+                    THEN NULLIF(BTRIM(dc."MesIni"), '')::int
+
+                    WHEN LOWER(BTRIM(dc."MesIni")) IN ('ene', 'enero')
+                    THEN 1
+                    WHEN LOWER(BTRIM(dc."MesIni")) IN ('feb', 'febrero')
+                    THEN 2
+                    WHEN LOWER(BTRIM(dc."MesIni")) IN ('mar', 'marzo')
+                    THEN 3
+                    WHEN LOWER(BTRIM(dc."MesIni")) IN ('abr', 'abril')
+                    THEN 4
+                    WHEN LOWER(BTRIM(dc."MesIni")) IN ('may', 'mayo')
+                    THEN 5
+                    WHEN LOWER(BTRIM(dc."MesIni")) IN ('jun', 'junio')
+                    THEN 6
+                    WHEN LOWER(BTRIM(dc."MesIni")) IN ('jul', 'julio')
+                    THEN 7
+                    WHEN LOWER(BTRIM(dc."MesIni")) IN ('ago', 'agosto')
+                    THEN 8
+                    WHEN LOWER(BTRIM(dc."MesIni")) IN ('sep', 'sept', 'septiembre', 'setiembre')
+                    THEN 9
+                    WHEN LOWER(BTRIM(dc."MesIni")) IN ('oct', 'octubre')
+                    THEN 10
+                    WHEN LOWER(BTRIM(dc."MesIni")) IN ('nov', 'noviembre')
+                    THEN 11
+                    WHEN LOWER(BTRIM(dc."MesIni")) IN ('dic', 'diciembre')
+                    THEN 12
+
+                    ELSE NULL
+                END AS mes_num
+            FROM electricidad.dashboard_consumos dc
+            JOIN electricidad.bitacora_alertas_consumos ba
+              ON ba.id_registro = dc.id_registro
+            WHERE ba.id_nivel IN (2, 3)
+        ),
+        recent_consumption_alerts AS (
+            SELECT
+                numero_permiso,
+                make_date(anio::int, mes_num::int, 1) AS alert_month
+            FROM alert_records
+            WHERE numero_permiso IS NOT NULL
+              AND anio IS NOT NULL
+              AND mes_num BETWEEN 1 AND 12
+        ),
+        recent_alert_window AS (
+            SELECT MAX(alert_month) AS max_month
+            FROM recent_consumption_alerts
+        )
+        SELECT DISTINCT rca.numero_permiso
+        FROM recent_consumption_alerts rca
+        CROSS JOIN recent_alert_window raw
+        WHERE raw.max_month IS NOT NULL
+          AND rca.alert_month >= (
+              raw.max_month - ((%s::int - 1) * INTERVAL '1 month')
+          )::date
+        ORDER BY rca.numero_permiso;
+    """
+
+    with connection.cursor() as cursor:
+        set_dashboard_statement_timeout(cursor)
+        cursor.execute(sql, [months])
+        permissions = [row[0] for row in cursor.fetchall() if row[0]]
+
+    filters["_recent_consumption_alert_permissions"] = permissions
+
+    return permissions
+
+
+def consumo_month_number_sql(alias):
+    mes = f'{alias}."MesIni"'
+
+    return f"""
+        CASE
+            WHEN NULLIF(BTRIM({mes}), '') ~ '^[0-9]+$'
+            THEN NULLIF(BTRIM({mes}), '')::int
+
+            WHEN LOWER(BTRIM({mes})) IN ('ene', 'enero') THEN 1
+            WHEN LOWER(BTRIM({mes})) IN ('feb', 'febrero') THEN 2
+            WHEN LOWER(BTRIM({mes})) IN ('mar', 'marzo') THEN 3
+            WHEN LOWER(BTRIM({mes})) IN ('abr', 'abril') THEN 4
+            WHEN LOWER(BTRIM({mes})) IN ('may', 'mayo') THEN 5
+            WHEN LOWER(BTRIM({mes})) IN ('jun', 'junio') THEN 6
+            WHEN LOWER(BTRIM({mes})) IN ('jul', 'julio') THEN 7
+            WHEN LOWER(BTRIM({mes})) IN ('ago', 'agosto') THEN 8
+            WHEN LOWER(BTRIM({mes})) IN ('sep', 'sept', 'septiembre', 'setiembre') THEN 9
+            WHEN LOWER(BTRIM({mes})) IN ('oct', 'octubre') THEN 10
+            WHEN LOWER(BTRIM({mes})) IN ('nov', 'noviembre') THEN 11
+            WHEN LOWER(BTRIM({mes})) IN ('dic', 'diciembre') THEN 12
+
+            ELSE NULL
+        END
+    """
+
+
+def consumo_alert_month_sql(alias):
+    anio = f'{alias}."Anio"'
+    mes_num = consumo_month_number_sql(alias)
+
+    return f"""
+        CASE
+            WHEN {anio} IS NOT NULL
+              AND ({mes_num}) BETWEEN 1 AND 12
+            THEN make_date({anio}::int, ({mes_num})::int, 1)
+            ELSE NULL
+        END
+    """
+
+
+def build_recent_consumption_alert_period_condition(filters, alias):
+    if not filters.get("recent_consumption_alerts"):
+        return "", []
+
+    months = filters.get("recent_consumption_alert_months") or 6
+    current_alert_month = consumo_alert_month_sql(alias)
+    max_alert_month = consumo_alert_month_sql("dcw")
+
+    return f"""
+        AND {current_alert_month} IS NOT NULL
+        AND {current_alert_month} >= (
+            (
+                SELECT MAX({max_alert_month})
+                FROM electricidad.dashboard_consumos dcw
+                JOIN electricidad.bitacora_alertas_consumos baw
+                  ON baw.id_registro = dcw.id_registro
+                WHERE baw.id_nivel IN (2, 3)
+            ) - ((%s::int - 1) * INTERVAL '1 month')
+        )::date
+    """, [months]
+
+
+def add_recent_consumption_alert_condition(conditions, params, permission_expression, filters):
+    permissions = get_recent_consumption_alert_permissions(filters)
+
+    if permissions is None:
+        return
+
+    if not permissions:
+        conditions.append("1=0")
+        return
+
+    conditions.append(f"{permission_expression} = ANY(%s)")
+    params.append(permissions)
 
 
 def build_permisos_geo_where(filters, alias):
@@ -348,6 +527,13 @@ def build_permisos_where(filters, alias="p"):
         """)
         params.extend(temporal_params)
 
+    add_recent_consumption_alert_condition(
+        conditions,
+        params,
+        f'NULLIF(BTRIM({alias}."NumeroPermiso"), \'\')',
+        filters,
+    )
+
     return " AND ".join(conditions), params
 
 
@@ -407,6 +593,13 @@ def build_consumos_where(filters, alias="c"):
             )
         """)
         params.extend(geo_params)
+
+    add_recent_consumption_alert_condition(
+        conditions,
+        params,
+        f'NULLIF(BTRIM({alias}."NumeroPermiso"), \'\')',
+        filters,
+    )
 
     return " AND ".join(conditions), params
 
@@ -575,6 +768,68 @@ def dashboard_summary(request):
 
         cursor.execute("DROP TABLE IF EXISTS pg_temp.dashboard_alertas_summary;")
 
+        recent_alert_period_where, recent_alert_period_params = (
+            build_recent_consumption_alert_period_condition(filters, "fc")
+        )
+
+        permiso_alerts_sql = f"""
+            SELECT
+                'Permiso' AS origen,
+                COALESCE(
+                    NULLIF(BTRIM(fp."Permisionario"), ''),
+                    NULLIF(BTRIM(fp."Razon_Social_Autorizada"), ''),
+                    NULLIF(BTRIM(ap."NumeroPermiso"), '')
+                ) AS sujeto,
+                ap.id_alerta,
+                ap.id_nivel
+            FROM electricidad.bitacora_alertas_permisos ap
+            JOIN filtered_permisos fp
+              ON NULLIF(BTRIM(fp."NumeroPermiso"), '') =
+                 NULLIF(BTRIM(ap."NumeroPermiso"), '')
+            WHERE {alert_where_p}
+        """
+
+        consumo_alerts_sql = f"""
+            SELECT
+                'Consumo' AS origen,
+                COALESCE(
+                    NULLIF(BTRIM(fc."Permisionario"), ''),
+                    NULLIF(BTRIM(fc."Razon_Social_Autorizada"), ''),
+                    NULLIF(BTRIM(fc."NumeroPermiso"), '')
+                ) AS sujeto,
+                ac.id_alerta,
+                ac.id_nivel
+            FROM electricidad.bitacora_alertas_consumos ac
+            JOIN filtered_consumos fc
+              ON fc.id_registro = ac.id_registro
+            WHERE {alert_where_c}
+              {recent_alert_period_where}
+        """
+
+        if filters["recent_consumption_alerts"]:
+            alertas_raw_sql = consumo_alerts_sql
+            alertas_summary_params = (
+                permisos_params
+                + consumos_params
+                + alert_params_c
+                + recent_alert_period_params
+            )
+        else:
+            alertas_raw_sql = f"""
+                {permiso_alerts_sql}
+
+                UNION ALL
+
+                {consumo_alerts_sql}
+            """
+            alertas_summary_params = (
+                permisos_params
+                + consumos_params
+                + alert_params_p
+                + alert_params_c
+                + recent_alert_period_params
+            )
+
         cursor.execute(f"""
             CREATE TEMP TABLE dashboard_alertas_summary AS
             WITH filtered_permisos AS (
@@ -588,36 +843,7 @@ def dashboard_summary(request):
                 WHERE {consumos_where}
             ),
             alertas_raw AS (
-                SELECT
-                    'Permiso' AS origen,
-                    COALESCE(
-                        NULLIF(BTRIM(fp."Permisionario"), ''),
-                        NULLIF(BTRIM(fp."Razon_Social_Autorizada"), ''),
-                        NULLIF(BTRIM(ap."NumeroPermiso"), '')
-                    ) AS sujeto,
-                    ap.id_alerta,
-                    ap.id_nivel
-                FROM electricidad.bitacora_alertas_permisos ap
-                JOIN filtered_permisos fp
-                  ON NULLIF(BTRIM(fp."NumeroPermiso"), '') =
-                     NULLIF(BTRIM(ap."NumeroPermiso"), '')
-                WHERE {alert_where_p}
-
-                UNION ALL
-
-                SELECT
-                    'Consumo' AS origen,
-                    COALESCE(
-                        NULLIF(BTRIM(fc."Permisionario"), ''),
-                        NULLIF(BTRIM(fc."Razon_Social_Autorizada"), ''),
-                        NULLIF(BTRIM(fc."NumeroPermiso"), '')
-                    ) AS sujeto,
-                    ac.id_alerta,
-                    ac.id_nivel
-                FROM electricidad.bitacora_alertas_consumos ac
-                JOIN filtered_consumos fc
-                  ON fc.id_registro = ac.id_registro
-                WHERE {alert_where_c}
+                {alertas_raw_sql}
             )
             SELECT
                 origen,
@@ -628,7 +854,7 @@ def dashboard_summary(request):
             FROM alertas_raw
             WHERE id_nivel > 1
             GROUP BY origen, sujeto, id_alerta;
-        """, permisos_params + consumos_params + alert_params_p + alert_params_c)
+        """, alertas_summary_params)
 
         cursor.execute("""
             SELECT
@@ -768,6 +994,9 @@ def dashboard_alerts(request):
     if source not in {"all", "permiso", "consumo"}:
         source = "all"
 
+    if filters["recent_consumption_alerts"]:
+        source = "consumo"
+
     try:
         level = int(level)
     except ValueError:
@@ -795,6 +1024,10 @@ def dashboard_alerts(request):
 
     alert_where_p = " AND ".join(["ap.id_nivel = %s"] + alert_types_p)
     alert_where_c = " AND ".join(["ac.id_nivel = %s"] + alert_types_c)
+
+    detail_recent_alert_period_where, detail_recent_alert_period_params = (
+        build_recent_consumption_alert_period_condition(filters, "fc")
+    )
 
     alert_params_p = [level]
     alert_params_c = [level]
@@ -873,6 +1106,7 @@ def dashboard_alerts(request):
             JOIN filtered_consumos fc
                 ON fc.id_registro = ac.id_registro
             WHERE {alert_where_c}
+              {detail_recent_alert_period_where}
         )
         SELECT
             au.origen,
@@ -906,6 +1140,7 @@ def dashboard_alerts(request):
         + consumos_params
         + alert_params_p
         + alert_params_c
+        + detail_recent_alert_period_params
         + [limit]
     )
 

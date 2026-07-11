@@ -70,6 +70,8 @@ export default function DashboardPage() {
     outputPeriod: 'auto',
     alertLevels: [],
     alertTypes: [],
+    recentConsumptionAlerts: false,
+    recentConsumptionAlertMonths: 6,
     estados: [],
     municipios: [],
     gerencias: [],
@@ -85,6 +87,10 @@ export default function DashboardPage() {
     dashboardFilters
   );
 
+  const effectiveAlertSource = dashboardFilters.recentConsumptionAlerts
+    ? 'consumo'
+    : alertSource;
+
   const {
     data,
     loading,
@@ -97,7 +103,7 @@ export default function DashboardPage() {
     loading: alertsLoading,
     error: alertsError,
   } = useDashboardAlerts({
-    source: alertSource,
+    source: effectiveAlertSource,
     level: alertLevel,
     limit: 10,
     filters: dashboardFilters,
@@ -335,7 +341,16 @@ export default function DashboardPage() {
             </div>
           </section>
 
-          <h2 className="section-title">Detalle de alertas</h2>
+          <div className="alert-detail-heading">
+
+
+            <h2 className="section-title">Detalle de alertas</h2>
+
+
+            <p>(solo se muestran 10 registros)</p>
+
+
+          </div>
 
           <section className="db-card">
             <div

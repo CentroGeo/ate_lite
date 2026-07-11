@@ -34,5 +34,13 @@ export function appendDashboardFilters(params, filters = {}) {
     });
   });
 
+  if (filters.recentConsumptionAlerts) {
+    params.append('recentConsumptionAlerts', 'true');
+    params.append(
+      'recentConsumptionAlertMonths',
+      String(filters.recentConsumptionAlertMonths || 6)
+    );
+  }
+
   return params;
 }

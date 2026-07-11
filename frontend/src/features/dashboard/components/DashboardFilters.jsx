@@ -8,6 +8,8 @@ const DEFAULT_FILTERS = {
   outputPeriod: 'auto',
   alertLevels: [],
   alertTypes: [],
+  recentConsumptionAlerts: false,
+  recentConsumptionAlertMonths: 6,
   estados: [],
   municipios: [],
   gerencias: [],
@@ -29,12 +31,32 @@ function getSelectedValues(event) {
   return Array.from(event.target.selectedOptions).map((option) => option.value);
 }
 
+function clampRecentAlertMonths(value) {
+  const parsed = Number(value);
+
+  if (!Number.isFinite(parsed)) {
+    return 6;
+  }
+
+  return Math.min(24, Math.max(1, Math.round(parsed)));
+}
+
+function formatRecentAlertRange(value) {
+  const months = clampRecentAlertMonths(value);
+
+  return months === 1
+    ? 'último mes'
+    : `últimos ${months} meses`;
+}
+
 function normalizeFilters(filters = {}) {
   return {
     ...DEFAULT_FILTERS,
     ...filters,
     alertLevels: filters.alertLevels || [],
     alertTypes: filters.alertTypes || [],
+    recentConsumptionAlerts: Boolean(filters.recentConsumptionAlerts),
+    recentConsumptionAlertMonths: clampRecentAlertMonths(filters.recentConsumptionAlertMonths),
     estados: filters.estados || [],
     municipios: filters.municipios || [],
     gerencias: filters.gerencias || [],
@@ -65,10 +87,16 @@ export default function DashboardFilters({ filters, onApply, onClear }) {
   const { data: options, loading, error } = useDashboardOptions();
   const [draft, setDraft] = useState(() => normalizeFilters(filters));
   const [isOpen, setIsOpen] = useState(false);
+  const [isRecentAlertsOpen, setIsRecentAlertsOpen] = useState(false);
 
   const externalFiltersKey = useMemo(
     () => JSON.stringify(normalizeFilters(filters)),
     [filters]
+  );
+
+  const appliedFilters = useMemo(
+    () => normalizeFilters(filters),
+    [externalFiltersKey]
   );
 
   useEffect(() => {
@@ -136,8 +164,23 @@ export default function DashboardFilters({ filters, onApply, onClear }) {
       errors.push('El año inicial no puede ser mayor que el año final.');
     }
 
+    if (
+      draft.recentConsumptionAlerts
+      && (
+        draft.recentConsumptionAlertMonths < 1
+        || draft.recentConsumptionAlertMonths > 24
+      )
+    ) {
+      errors.push('El rango de alertas recientes debe estar entre 1 y 24 meses.');
+    }
+
     return errors;
-  }, [draft.startYear, draft.endYear]);
+  }, [
+    draft.startYear,
+    draft.endYear,
+    draft.recentConsumptionAlerts,
+    draft.recentConsumptionAlertMonths,
+  ]);
 
   function applyDraftPatch(patch) {
     setDraft((current) => {
@@ -183,6 +226,14 @@ export default function DashboardFilters({ filters, onApply, onClear }) {
       });
     }
 
+    if (appliedFilters.recentConsumptionAlerts) {
+      chips.push({
+        key: 'recentConsumptionAlerts',
+        label: `Alertas consumo: ${formatRecentAlertRange(appliedFilters.recentConsumptionAlertMonths)}`,
+        remove: () => applyDraftPatch({ recentConsumptionAlerts: false }),
+      });
+    }
+
     const addMultiChips = (key, label, values) => {
       values.forEach((value) => {
         chips.push({
@@ -206,7 +257,7 @@ export default function DashboardFilters({ filters, onApply, onClear }) {
     addMultiChips('permisionarios', 'Permisionario', draft.permisionarios);
 
     return chips;
-  }, [draft, chipLookups]);
+  }, [draft, chipLookups, appliedFilters]);
 
   function updateField(field, value) {
     setDraft((current) => ({
@@ -250,6 +301,20 @@ export default function DashboardFilters({ filters, onApply, onClear }) {
     setIsOpen(false);
   }
 
+  function applyRecentAlertsFilter() {
+    const next = normalizeFilters({
+      ...draft,
+      recentConsumptionAlerts: true,
+      recentConsumptionAlertMonths: clampRecentAlertMonths(
+        draft.recentConsumptionAlertMonths
+      ),
+    });
+
+    setDraft(next);
+    onApply(next);
+    setIsRecentAlertsOpen(false);
+  }
+
   const selectedEstadoSet = new Set(draft.estados);
 
   const municipiosVisibles = draft.estados.length === 0
@@ -265,6 +330,14 @@ export default function DashboardFilters({ filters, onApply, onClear }) {
           onClick={() => setIsOpen((current) => !current)}
         >
           ☰ Filtros
+        </button>
+
+        <button
+          className={`filters-special ${appliedFilters.recentConsumptionAlerts ? 'is-active' : ''}`}
+          type="button"
+          onClick={() => setIsRecentAlertsOpen((current) => !current)}
+        >
+          Alertas recientes
         </button>
 
         <button
@@ -295,6 +368,60 @@ export default function DashboardFilters({ filters, onApply, onClear }) {
           )}
         </div>
       </div>
+
+      {isRecentAlertsOpen && (
+        <div className="recent-alerts-panel">
+          <div>
+            <strong>Alertas recientes de consumo</strong>
+            <p>
+              Filtra permisos con alertas de consumo en advertencia o crítico dentro del rango seleccionado.
+            </p>
+          </div>
+
+          <label className="recent-alerts-range">
+            <span>
+              <strong>{formatRecentAlertRange(draft.recentConsumptionAlertMonths)}</strong>
+            </span>
+            <input
+              type="range"
+              min="1"
+              max="24"
+              step="1"
+              value={draft.recentConsumptionAlertMonths}
+              onChange={(event) => updateField(
+                'recentConsumptionAlertMonths',
+                clampRecentAlertMonths(event.target.value)
+              )}
+            />
+          </label>
+
+          <div className="recent-alerts-actions">
+            <button
+              className="filters-secondary"
+              type="button"
+              onClick={() => {
+                updateField('recentConsumptionAlerts', false);
+                onApply(normalizeFilters({
+                  ...draft,
+                  recentConsumptionAlerts: false,
+                }));
+                setIsRecentAlertsOpen(false);
+              }}
+            >
+              Quitar
+            </button>
+
+            <button
+              className="filters-apply"
+              type="button"
+              onClick={applyRecentAlertsFilter}
+              disabled={validationErrors.length > 0}
+            >
+              Aplicar
+            </button>
+          </div>
+        </div>
+      )}
 
       {isOpen && (
         <aside className="filters-panel">
